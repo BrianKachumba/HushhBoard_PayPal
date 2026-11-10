@@ -1,0 +1,25 @@
+# Render Blueprint: deploys the HushhBoard money server (PayPal) from /server.
+# In Render: New > Blueprint > pick this repo, then paste the PayPal sandbox Client ID and Secret.
+services:
+  - type: web
+    name: hushhboard-paypal
+    runtime: node
+    rootDir: server
+    plan: free
+    region: frankfurt
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: PAYPAL_API_BASE
+        value: https://api-m.sandbox.paypal.com
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: LINK_SECRET
+        generateValue: true
+      - key: FX_KES_PER_USD
+        value: "129.96"

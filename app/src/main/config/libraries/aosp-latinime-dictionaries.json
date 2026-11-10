@@ -1,0 +1,15 @@
+{
+  "uniqueId": "aosp-latinime-dictionaries",
+  "name": "AOSP LatinIME English dictionary",
+  "description": "English (UK) word list and frequencies used by the HushhBoard word engine.",
+  "developers": [
+    {
+      "name": "The Android Open Source Project",
+      "organisationUrl": "https://source.android.com"
+    }
+  ],
+  "website": "https://android.googlesource.com/platform/packages/inputmethods/LatinIME",
+  "licenses": [
+    "Apache-2.0"
+  ]
+}

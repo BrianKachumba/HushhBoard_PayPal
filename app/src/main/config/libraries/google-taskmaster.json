@@ -1,0 +1,15 @@
+{
+  "uniqueId": "google-taskmaster",
+  "name": "Taskmaster-1 and Taskmaster-2 dialogue datasets",
+  "description": "By Bill Byrne, Karthik Krishnamoorthi, Chinnadhurai Sankar, Saravanan Ganesh, Arvind Neelakantan, Amit Dubey, Kyu-Young Kim and Andy Cedilnik (Google LLC). Licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Changes: the dialogue text was converted into word-sequence statistics for the HushhBoard next-word model; no dialogue text is shipped.",
+  "developers": [
+    {
+      "name": "Google LLC",
+      "organisationUrl": "https://github.com/google-research-datasets"
+    }
+  ],
+  "website": "https://github.com/google-research-datasets/Taskmaster",
+  "licenses": [
+    "CC-BY-4.0"
+  ]
+}

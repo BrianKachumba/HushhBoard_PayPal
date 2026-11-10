@@ -1,0 +1,341 @@
+Hi, how are you?
+Hi, how are you doing?
+Hey, how are you doing today?
+Hello, how are you?
+Hello, how is your day going?
+Hey there, how have you been?
+I am fine, thank you.
+I am good, thanks for asking.
+I am fine and you?
+I'm good, how about you?
+I'm fine, thanks. How are you?
+I'm doing well, thank you.
+I am okay, just a bit tired.
+I am at home.
+I am at work.
+I am on my way.
+I'm on my way home.
+I'm on the way, I will be there in ten minutes.
+I am coming now.
+I'm coming, give me five minutes.
+I am almost there.
+I'm almost there, wait for me.
+I am here.
+I'm here, where are you?
+I am outside.
+I'm outside the gate.
+I am in town.
+I'm in a meeting, I will call you later.
+I am in class right now.
+I am busy right now, can I call you later?
+I'm busy at the moment.
+I am going to the market.
+I am going home now.
+I'm going to sleep.
+I am going to church tomorrow.
+I am sorry for the late reply.
+I'm sorry, I didn't see your message.
+I am so happy for you.
+I'm so proud of you.
+I am not sure yet.
+I'm not feeling well today.
+I am very tired.
+I am waiting for you.
+I'm waiting for your call.
+I am still at the office.
+I'm still waiting.
+I will call you later.
+I will call you when I get home.
+I'll call you in the evening.
+I will send you the money tomorrow.
+I'll send it now.
+I will be there at six.
+I'll be there in a few minutes.
+I will be late today.
+I'll be home soon.
+I will let you know.
+I'll let you know tomorrow.
+I will check and get back to you.
+I'll get back to you.
+I will see you tomorrow.
+I'll see you later.
+I will text you later.
+I have sent the money.
+I have sent it.
+I've sent you the details.
+I have arrived.
+I have reached home safely.
+I have been busy.
+I've been so busy this week.
+I have a meeting at ten.
+I have no idea.
+I have not received it yet.
+I haven't received the money.
+I haven't seen it.
+I don't know.
+I don't know what to say.
+I don't have money right now.
+I don't think so.
+I don't mind.
+I can't make it today.
+I can't wait to see you.
+I can't find it.
+I can call you now.
+I can do that.
+I can send it tomorrow.
+I can come tomorrow.
+I need your help.
+I need to talk to you.
+I need money for fare.
+I need it by tomorrow.
+I want to see you.
+I want to go home.
+I want to buy a phone.
+I would like to know.
+I think so.
+I think it's okay.
+I think we should go.
+I love you.
+I love you so much.
+I miss you.
+I miss you so much.
+I hope you are okay.
+I hope you are doing well.
+I hope you have a great day.
+I just arrived.
+I just woke up.
+I just saw your message.
+I just got home.
+I was sleeping.
+I was in a meeting.
+I was about to call you.
+I got it, thank you.
+I got your message.
+I know right.
+I know, I know.
+I mean it.
+I understand.
+I agree with you.
+I forgot to tell you.
+I told you.
+I see.
+Thank you so much.
+Thank you very much.
+Thank you for everything.
+Thank you for your help.
+Thank you for the money.
+Thank you, God bless you.
+Thanks a lot.
+Thanks so much.
+Thanks for coming.
+Thanks for the update.
+Thanks, I got it.
+You are welcome.
+You're welcome.
+No problem.
+No worries.
+It's okay.
+It's fine.
+That's okay.
+That's great.
+That's good news.
+That is good.
+That's so nice.
+Okay, see you.
+Okay, no problem.
+Okay, I will.
+Ok, thanks.
+Okay, call me when you get there.
+Okay, let me know.
+Sure, no problem.
+Yes, I am coming.
+Yes please.
+Yes, I got it.
+No, I am not.
+No, thank you.
+Not yet.
+Not now.
+Good morning.
+Good morning, how did you sleep?
+Good morning, have a nice day.
+Good morning, how are you today?
+Good afternoon.
+Good evening.
+Good night.
+Good night, sleep well.
+Good night and sweet dreams.
+Good luck.
+Good job.
+Have a nice day.
+Have a good day.
+Have a great weekend.
+Have a safe journey.
+Happy birthday.
+Happy birthday, may God bless you.
+Happy new year.
+Merry Christmas.
+Congratulations, you deserve it.
+Get well soon.
+Take care.
+Take care of yourself.
+See you later.
+See you tomorrow.
+See you soon.
+See you on Monday.
+See you at church.
+Talk to you later.
+Talk soon.
+Call me when you are free.
+Call me back.
+Call me when you get home.
+Please call me.
+Please call me back.
+Please send me the money.
+Please send me the number.
+Please send me the location.
+Please let me know.
+Please confirm.
+Please help me.
+Please wait for me.
+Please come early.
+Send me the location.
+Send me the number.
+Send me your number.
+Send me the details.
+Send me a message when you arrive.
+Send it to my number.
+Can you send me the money?
+Can you call me?
+Can you help me?
+Can you pick me up?
+Can you come tomorrow?
+Can I call you?
+Can I come over?
+Can we meet tomorrow?
+Can we talk later?
+Can we meet at six?
+Let me know when you arrive.
+Let me know if you need anything.
+Let me call you back.
+Let me check.
+Let me see.
+Let's meet at six.
+Let's go.
+Let's talk later.
+Where are you?
+Where are you now?
+Where are we meeting?
+Where is the meeting?
+What are you doing?
+What are you doing later?
+What time is it?
+What time are we meeting?
+What time will you come?
+What happened?
+What's up?
+What's the plan?
+When are you coming?
+When are you coming back?
+When will you send it?
+How much is it?
+How much do I send?
+How was your day?
+How was work?
+How was the trip?
+How is the family?
+How is your mother?
+How are the kids?
+How did it go?
+Are you okay?
+Are you coming?
+Are you at home?
+Are you free tomorrow?
+Are you serious?
+Did you get the money?
+Did you get my message?
+Did you arrive safely?
+Did you eat?
+Do you want to come?
+Do you have time?
+Is it okay?
+Is everything okay?
+Is he coming?
+Have you eaten?
+Have you arrived?
+Have you received it?
+Why are you not picking my calls?
+Why didn't you call?
+Who is this?
+Who is coming?
+Wait for me.
+Wait a minute.
+Hold on.
+Just a minute.
+Coming.
+On my way.
+Almost there.
+Running late.
+Sorry I am late.
+Sorry for the delay.
+Sorry, I missed your call.
+Sorry about that.
+Don't worry.
+Don't forget to call me.
+Don't be late.
+Don't worry about it.
+It was nice meeting you.
+It was good to see you.
+It is raining here.
+It is too expensive.
+It's too late.
+It's my birthday today.
+We are on our way.
+We are at the restaurant.
+We will meet tomorrow.
+We need to talk.
+We have a meeting tomorrow.
+They are coming.
+He is not picking up.
+She is at home.
+My phone was off.
+My battery is low.
+My number is the same.
+The meeting is at ten.
+The money has been sent.
+The traffic is bad.
+The traffic is too much today.
+The match starts at eight.
+Send the money via M-Pesa.
+I will send it via M-Pesa.
+I have paid.
+I have paid the rent.
+Please pay the electricity bill.
+How much is the fare?
+The fare is two hundred.
+I will pay you back on Friday.
+Remind me tomorrow.
+Remember to buy bread.
+Buy milk on your way home.
+Lunch is ready.
+Dinner is ready.
+Are you hungry?
+Let's have lunch.
+Let's grab lunch tomorrow.
+I miss home.
+God bless you.
+Praying for you.
+Amen.
+Nice.
+Wow, that's amazing.
+Lol.
+Haha that's funny.
+Same here.
+Me too.
+You too.
+All the best.
+Well done.
+Love you.
+Miss you.
+Bye.
+Bye, take care.
+Okay bye.

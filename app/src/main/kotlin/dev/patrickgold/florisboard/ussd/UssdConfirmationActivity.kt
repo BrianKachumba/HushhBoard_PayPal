@@ -1,0 +1,1137 @@
+package dev.patrickgold.florisboard.ussd
+
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.view.HapticFeedbackConstants
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import dev.patrickgold.florisboard.TransparentCameraActivity
+import dev.patrickgold.florisboard.money.*
+import dev.patrickgold.florisboard.scanner.MobileMoneyParser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+enum class TransactionType { SEND_MONEY, TILL, PAYBILL, BANK, UNKNOWN }
+
+/** A payment source / payee row in the list (M-Pesa, Airtel Money, Equity, KCB, PayPal...). */
+data class PayAccount(
+    val id: String,
+    val provider: String,
+    val number: String,
+    val kind: SourceKind = when {
+        provider.contains("PayPal", true) -> SourceKind.PAYPAL
+        provider.contains("Airtel", true) -> SourceKind.AIRTEL
+        provider.contains("M-Pesa", true) || provider.contains("M-PESA", true) -> SourceKind.MPESA
+        else -> SourceKind.BANK
+    },
+)
+
+/** Builds the pay screen's "Payee" rows from the accounts the user connected during setup. */
+private fun accountsToRows(a: MoneyAccounts): List<PayAccount> = buildList {
+    a.phones.forEach { p ->
+        val kind = if (p.network == Network.AIRTEL) SourceKind.AIRTEL else SourceKind.MPESA
+        add(PayAccount("phone-" + p.id, if (kind == SourceKind.AIRTEL) "Airtel Money" else "M-Pesa", p.number, kind))
+    }
+    a.banks.forEach { b -> add(PayAccount("bank-" + b.id, b.bank?.name ?: "Bank", "•••• " + b.accountNumber.takeLast(4), SourceKind.BANK)) }
+    a.paypal?.let { add(PayAccount("paypal", "PayPal", it.email, SourceKind.PAYPAL)) }
+}
+
+private fun TransactionType.toTab() = when (this) {
+    TransactionType.TILL -> PayTab.TILL
+    TransactionType.PAYBILL -> PayTab.PAYBILL
+    TransactionType.BANK -> PayTab.BANK
+    else -> PayTab.PHONE
+}
+
+private fun PayTab.toType() = when (this) {
+    PayTab.TILL -> TransactionType.TILL
+    PayTab.PAYBILL -> TransactionType.PAYBILL
+    PayTab.BANK -> TransactionType.BANK
+    PayTab.PHONE -> TransactionType.SEND_MONEY
+}
+
+/** What the pay screen shows after Confirm when the route isn't a plain M-PESA/Airtel payment. */
+sealed class PayOutcome {
+    data class Route(val route: PayRoute) : PayOutcome()
+    data class ConfirmPayPal(val email: String, val amount: Double) : PayOutcome()
+    data object Sending : PayOutcome()
+    data class Sent(val payment: PayPalPayment, val email: String) : PayOutcome()
+    data class Failed(val message: String) : PayOutcome()
+}
+
+class UssdConfirmationActivity : ComponentActivity() {
+    companion object {
+        /** Already-parsed payment from the scanner (e.g. a KE-QR code): type name + field map. */
+        const val EXTRA_PAY_TYPE = "PAY_TYPE"
+        const val EXTRA_PAY_FIELDS = "PAY_FIELDS"
+    }
+
+    @Suppress("UNCHECKED_CAST", "DEPRECATION")
+    private fun structuredPayment(): Pair<TransactionType, Map<String, String>>? {
+        val typeName = intent.getStringExtra(EXTRA_PAY_TYPE) ?: return null
+        val type = when (typeName) {
+            "SEND_MONEY" -> TransactionType.SEND_MONEY
+            "TILL" -> TransactionType.TILL
+            "PAYBILL" -> TransactionType.PAYBILL
+            else -> return null
+        }
+        val fields = (intent.getSerializableExtra(EXTRA_PAY_FIELDS) as? HashMap<String, String>) ?: return null
+        return type to fields
+    }
+
+    private var pendingRawText: String = ""
+    private var pendingCommand: String = ""
+
+    private val transactionTypeState = MutableStateFlow(TransactionType.SEND_MONEY)
+    private val transactionDataState = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /** Rows come from the accounts connected in setup / Home; extra payees added here are session-only. */
+    private val extraPayees = MutableStateFlow<List<PayAccount>>(emptyList())
+    private val bankDestinationState = MutableStateFlow(BankDestination.BANK_ACCOUNT)
+    private val outcomeState = MutableStateFlow<PayOutcome?>(null)
+    private val smartState = MutableStateFlow<SmartFill?>(null)
+    private val preferPayPalState = MutableStateFlow(false)
+
+    private val cameraEditLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val scannedText = result.data?.getStringExtra("SCANNED_RESULT") ?: ""
+                val parsed = MobileMoneyParser.parse(scannedText)
+                if (parsed.type != TransactionType.UNKNOWN) {
+                    transactionTypeState.value = parsed.type
+                    val merged = transactionDataState.value.toMutableMap()
+                    parsed.data.forEach { (k, v) -> if (v.isNotBlank()) merged[k] = v }
+                    transactionDataState.value = merged
+                    Toast.makeText(this, "Fields Auto-Updated!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Could not detect details from scan.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+    private val requestPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+            if (permissions[Manifest.permission.CALL_PHONE] == true &&
+                permissions[Manifest.permission.READ_PHONE_STATE] == true
+            ) {
+                launchUi()
+            } else {
+                Toast.makeText(this, "Permissions required for USSD payments", Toast.LENGTH_LONG).show()
+                finish()
+            }
+        }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        pendingRawText = intent.getStringExtra("RAW_OCR_TEXT") ?: ""
+        pendingCommand = intent.getStringExtra("TYPED_COMMAND") ?: ""
+
+        val hasCall = ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
+        val hasState = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+
+        if (hasCall && hasState) launchUi()
+        else requestPermissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE))
+    }
+
+    private fun launchUi() {
+        val (initType, initData) = structuredPayment() ?: parseMobileMoneyIntent(pendingRawText, pendingCommand)
+        if (initType != TransactionType.UNKNOWN) {
+            transactionTypeState.value = initType
+            transactionDataState.value = initData
+        }
+
+        MoneyStore.reload(this)
+        lifecycleScope.launch { MoneyApi.syncPayPal(this@UssdConfirmationActivity) }
+        lifecycleScope.launch { MoneyAi.warmUp() }
+
+        setContent {
+            val type by transactionTypeState.collectAsState()
+            val data by transactionDataState.collectAsState()
+            val money by MoneyStore.accounts.collectAsState()
+            val extra by extraPayees.collectAsState()
+            val accounts = remember(money, extra) { accountsToRows(money) + extra }
+            val destination by bankDestinationState.collectAsState()
+            val outcome by outcomeState.collectAsState()
+            val smart by smartState.collectAsState()
+            val preferPayPal by preferPayPalState.collectAsState()
+
+            UssdTransactionScreen(
+                type = type,
+                data = data,
+                accounts = accounts,
+                money = money,
+                destination = destination,
+                smart = smart,
+                preferPayPal = preferPayPal,
+                onDestinationChange = { bankDestinationState.value = it },
+                onSmartFill = { runSmartFill(it) },
+                onApplySmart = { applySmart(it) },
+                onDismissSmart = { smartState.value = null },
+                onConnectPayPal = {
+                    lifecycleScope.launch {
+                        PayPalConnect.start(this@UssdConfirmationActivity)?.let {
+                            Toast.makeText(this@UssdConfirmationActivity, it, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                onTypeChange = { transactionTypeState.value = it },
+                onDataChange = { key, value ->
+                    transactionDataState.value = transactionDataState.value.toMutableMap().apply { put(key, value) }
+                },
+                onCameraEdit = {
+                    cameraEditLauncher.launch(
+                        Intent(this, TransparentCameraActivity::class.java).putExtra("IS_FOR_EDIT", true)
+                    )
+                },
+                onAddPayee = { provider, number ->
+                    extraPayees.value = extraPayees.value +
+                        PayAccount(System.currentTimeMillis().toString(), provider, number)
+                },
+                onBack = { finish() },
+                onConfirm = { account -> handlePay(type, data, account) }
+            )
+
+            outcome?.let { o ->
+                PayOutcomeDialog(
+                    outcome = o,
+                    onDismiss = { if (o !is PayOutcome.Sending) outcomeState.value = null },
+                    onOpenApp = { app -> Handoffs.open(this, app); outcomeState.value = null },
+                    onSendPayPal = { email, amount -> sendPayPal(email, amount, data["note"].orEmpty()) },
+                    onDone = { outcomeState.value = null; finish() },
+                )
+            }
+        }
+
+        // Look at what the user just copied (e.g. a chat message) and offer an AI fill.
+        window.decorView.postDelayed({ runSmartFill(readClipboard(), silent = true) }, 350)
+    }
+
+    private fun readClipboard(): String = runCatching {
+        val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+    }.getOrDefault("")
+
+    private fun runSmartFill(text: String?, silent: Boolean = false) {
+        val source = text ?: readClipboard()
+        lifecycleScope.launch {
+            val fill = MoneyAi.understand(source)
+            if (fill != null) smartState.value = fill
+            else if (!silent) Toast.makeText(this@UssdConfirmationActivity, "Copy a payment message first, then tap Smart fill.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun applySmart(fill: SmartFill) {
+        transactionTypeState.value = fill.tab.toType()
+        bankDestinationState.value = fill.destination
+        transactionDataState.value = transactionDataState.value.toMutableMap().apply { putAll(fill.fields) }
+        preferPayPalState.value = fill.preferPayPal && MoneyStore.accounts.value.paypal != null
+        smartState.value = null
+    }
+
+    private fun sendPayPal(email: String, amount: Double, note: String) {
+        outcomeState.value = PayOutcome.Sending
+        lifecycleScope.launch {
+            outcomeState.value = when (val r = MoneyApi.send(this@UssdConfirmationActivity, email, amount, "USD", note.ifBlank { "Sent with HushhBoard" })) {
+                is ApiResult.Ok -> PayOutcome.Sent(r.value, email)
+                is ApiResult.Err -> PayOutcome.Failed(r.message)
+            }
+        }
+    }
+
+    /**
+     * Payment dispatch. SIM picking is gone from the UI, so we resolve a SIM from the
+     * chosen provider here. Replace this body with your new payment handler.
+     */
+    private fun handlePay(type: TransactionType, data: Map<String, String>, account: PayAccount) {
+        val route = PayRouter.route(account.kind, type.toTab(), data, bankDestinationState.value, MoneyStore.accounts.value)
+        when (route) {
+            is PayRoute.Local -> handleLocalPay(route.tab.toType(), route.fields, account)
+            is PayRoute.PayPalSend -> outcomeState.value = PayOutcome.ConfirmPayPal(route.toEmail, data["amount"]?.toDoubleOrNull() ?: 0.0)
+            else -> outcomeState.value = PayOutcome.Route(route)
+        }
+    }
+
+    /** The original M-PESA / Airtel flow (USSD or STK push). */
+    private fun handleLocalPay(type: TransactionType, data: Map<String, String>, account: PayAccount) {
+
+        val sims = SimManager.getActiveSims(this)
+        val sim = sims.find { it.carrierName.contains(account.provider.substringBefore(" "), ignoreCase = true) }
+            ?: sims.firstOrNull()
+
+        when {
+            account.provider.contains("Airtel", ignoreCase = true) && sim != null -> {
+                val ussd = UssdCodeGenerator.generateAirtelCode(type, data)
+                if (ussd.isNotEmpty()) {
+                    SimManager.executeUssd(this, ussd, sim)
+                    finish()
+                } else Toast.makeText(this, "Invalid Airtel details", Toast.LENGTH_SHORT).show()
+            }
+
+            account.provider.contains("M-Pesa", ignoreCase = true) &&
+                (type == TransactionType.TILL || type == TransactionType.PAYBILL) -> {
+                Toast.makeText(this, "Requesting M-PESA prompt...", Toast.LENGTH_SHORT).show()
+                val amount = data["amount"] ?: "0"
+                val ref = if (type == TransactionType.PAYBILL) data["account"] ?: "Paybill" else "Buy Goods"
+                val userPhone = account.number
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val ok = DarajaApiClient.initiateStkPush(userPhone, amount, ref, "HushhBoard Payment")
+                    withContext(Dispatchers.Main) {
+                        if (!ok) Toast.makeText(this@UssdConfirmationActivity, "M-Pesa Request Failed", Toast.LENGTH_SHORT).show()
+                        finish()
+                    }
+                }
+            }
+
+            sim != null -> {
+                Toast.makeText(this, "Opening " + account.provider + " menu...", Toast.LENGTH_SHORT).show()
+                SimManager.executeUssd(this, "*334#", sim)
+                finish()
+            }
+
+            else -> Toast.makeText(this, account.provider + " isn't supported yet", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun parseMobileMoneyIntent(rawText: String, typedCommand: String): Pair<TransactionType, Map<String, String>> {
+        if (typedCommand.startsWith("##send") || typedCommand.startsWith("##pay")) {
+            val clean = typedCommand.lowercase()
+            val amount = Regex("\\d+").find(clean)?.value ?: ""
+            val phone = Regex("(07\\d{8}|01\\d{8})").find(clean)?.value
+            val till = Regex("till\\s(\\d{5,7})").find(clean)?.groupValues?.get(1)
+            val paybill = Regex("paybil[l]?\\s(\\d{5,6})").find(clean)?.groupValues?.get(1)
+            val acc = Regex("acc\\s(\\w+)").find(clean)?.groupValues?.get(1)
+
+            return when {
+                phone != null -> TransactionType.SEND_MONEY to mapOf("phone" to phone, "amount" to amount)
+                paybill != null && acc != null -> TransactionType.PAYBILL to mapOf("paybill" to paybill, "account" to acc, "amount" to amount)
+                till != null -> TransactionType.TILL to mapOf("till" to till, "amount" to amount)
+                else -> TransactionType.UNKNOWN to emptyMap()
+            }
+        }
+        if (rawText.isBlank()) return TransactionType.UNKNOWN to emptyMap()
+        val parsed = MobileMoneyParser.parse(rawText)
+        return parsed.type to parsed.data
+    }
+}
+
+// ───────────────────────── Fields & key logic ─────────────────────────
+
+/** Every input on the page. `numeric` fields use the in-page number pad; the others use the normal keyboard. */
+private enum class Field(val key: String, val numeric: Boolean, val maxLen: Int) {
+    AMOUNT("amount", true, 9),
+    PHONE("phone", true, 10),
+    TILL("till", true, 7),
+    PAYBILL("paybill", true, 6),
+    ACCOUNT("account", false, 30),
+    BANK_NAME("bankName", false, 30),
+    BANK_ACCOUNT("bankAccount", true, 20),
+    PP_EMAIL("ppEmail", false, 64),
+}
+
+private fun fieldsFor(type: TransactionType, dest: BankDestination): List<Field> = when (type) {
+    TransactionType.SEND_MONEY -> listOf(Field.AMOUNT, Field.PHONE)
+    TransactionType.TILL -> listOf(Field.AMOUNT, Field.TILL)
+    TransactionType.PAYBILL -> listOf(Field.AMOUNT, Field.PAYBILL, Field.ACCOUNT)
+    TransactionType.BANK ->
+        if (dest == BankDestination.PAYPAL) listOf(Field.AMOUNT, Field.PP_EMAIL)
+        else listOf(Field.AMOUNT, Field.BANK_NAME, Field.BANK_ACCOUNT)
+    else -> listOf(Field.AMOUNT)
+}
+
+private val EMAIL_RE = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$")
+private const val KES_PER_USD = 129.96
+
+private const val KEY_BACKSPACE = "BACKSPACE"
+
+private fun applyKey(field: Field, current: String, key: String): String = when (key) {
+    KEY_BACKSPACE -> current.dropLast(1)
+    ".", "," ->
+        // Only the amount accepts a decimal point, and only one.
+        if (field == Field.AMOUNT && !current.contains('.')) current.ifEmpty { "0" } + "." else current
+    else -> when {
+        current.length >= field.maxLen -> current
+        field == Field.AMOUNT && current == "0" -> key
+        field == Field.AMOUNT && current.contains('.') && current.substringAfter('.').length >= 2 -> current
+        else -> current + key
+    }
+}
+
+// ───────────────────────── UI ─────────────────────────
+
+private val PageBg = Color(0xFFF2F2F2)
+private val CardBg = Color.White
+private val Brand = Color(0xFF07C160)       // WeChat-style green
+private val TextMain = Color(0xFF111111)
+private val TextMuted = Color(0xFF8A8A8A)
+private val Divider = Color(0xFFE4E4E4)
+private val BrandPressed = Color(0xFF05A050)
+private val PadBg = Color(0xFFE9EAEC)
+private val KeyBg = Color.White
+private val KeyFn = Color(0xFFD3D5D9)
+private val KeyPressed = Color(0xFFC8CACE)
+private val PayPalBlue = Color(0xFF0070E0)
+private val AmberText = Color(0xFFB26A00)
+
+@Composable
+fun UssdTransactionScreen(
+    type: TransactionType,
+    data: Map<String, String>,
+    accounts: List<PayAccount>,
+    money: MoneyAccounts,
+    destination: BankDestination,
+    smart: SmartFill?,
+    preferPayPal: Boolean,
+    onDestinationChange: (BankDestination) -> Unit,
+    onSmartFill: (String?) -> Unit,
+    onApplySmart: (SmartFill) -> Unit,
+    onDismissSmart: () -> Unit,
+    onConnectPayPal: () -> Unit,
+    onTypeChange: (TransactionType) -> Unit,
+    onDataChange: (String, String) -> Unit,
+    onCameraEdit: () -> Unit,
+    onAddPayee: (provider: String, number: String) -> Unit,
+    onBack: () -> Unit,
+    onConfirm: (PayAccount) -> Unit,
+) {
+    val view = LocalView.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    var selectedId by remember { mutableStateOf<String?>(null) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var active by remember { mutableStateOf<Field?>(null) }
+    val selected = accounts.find { it.id == selectedId }
+    val latestData by rememberUpdatedState(data)
+
+    // AI asked for PayPal, or nothing picked yet: preselect sensibly.
+    LaunchedEffect(preferPayPal, accounts) {
+        if (preferPayPal && accounts.any { it.id == "paypal" }) selectedId = "paypal"
+        else if (selectedId == null || accounts.none { it.id == selectedId }) selectedId = accounts.firstOrNull()?.id
+    }
+
+    val fields = fieldsFor(type, destination)
+    val textRequesters = remember { mapOf(Field.ACCOUNT to FocusRequester(), Field.BANK_NAME to FocusRequester(), Field.PP_EMAIL to FocusRequester()) }
+    val payingWithPayPal = selected?.kind == SourceKind.PAYPAL
+    val currencyLabel = if (payingWithPayPal) "USD" else "KSh"
+
+    val formValid = (data["amount"]?.toDoubleOrNull() ?: 0.0) > 0 && when (type) {
+        TransactionType.SEND_MONEY -> (data["phone"] ?: "").length >= 10
+        TransactionType.TILL -> (data["till"] ?: "").length >= 5
+        TransactionType.PAYBILL -> (data["paybill"] ?: "").length >= 5 && !data["account"].isNullOrBlank()
+        TransactionType.BANK ->
+            if (destination == BankDestination.PAYPAL) {
+                val email = data["ppEmail"].orEmpty().trim()
+                EMAIL_RE.matches(email) || (email.isEmpty() && !payingWithPayPal && money.paypal != null)
+            } else !data["bankName"].isNullOrBlank() && (data["bankAccount"] ?: "").length >= 6
+        else -> false
+    }
+    val canPay = formValid && selected != null
+    val route = if (canPay) PayRouter.route(selected!!.kind, type.toTab(), data, destination, money) else null
+    val flow = if (canPay) PayRouter.flowFor(selected!!.kind, type.toTab(), data, destination, money) else null
+    val padOpen = active?.numeric == true
+
+    // Numeric field active -> hide the system keyboard. Text field active -> focus it so the system keyboard shows.
+    LaunchedEffect(active) {
+        val a = active ?: return@LaunchedEffect
+        if (a.numeric) {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        } else {
+            runCatching { textRequesters[a]?.requestFocus() }
+        }
+    }
+
+    BackHandler(enabled = padOpen) { active = null }
+
+    fun closeInput() {
+        active = null
+        focusManager.clearFocus()
+        keyboardController?.hide()
+    }
+
+    fun advance(allowPay: Boolean) {
+        val idx = fields.indexOf(active)
+        when {
+            idx in 0 until fields.lastIndex -> active = fields[idx + 1]
+            allowPay && canPay -> {
+                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                selected?.let(onConfirm)
+            }
+            else -> closeInput()
+        }
+    }
+
+    fun onPadKey(key: String) {
+        val f = active ?: return
+        val current = latestData[f.key] ?: ""
+        val updated = applyKey(f, current, key)
+        if (updated != current) onDataChange(f.key, updated)
+    }
+
+    val isLastField = active != null && active == fields.lastOrNull()
+    val enterLabel = when {
+        !isLastField -> "NEXT"
+        canPay -> "PAY"
+        else -> "DONE"
+    }
+
+    Column(
+        Modifier.fillMaxSize().background(PageBg).statusBarsPadding().navigationBarsPadding().imePadding()
+    ) {
+        // Top bar (compact)
+        Row(
+            Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Rounded.ArrowBackIosNew, "Back", tint = TextMain, modifier = Modifier.size(14.dp))
+            }
+            Text("Make a Transaction", color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Row(
+                Modifier.clip(RoundedCornerShape(14.dp)).background(Brand.copy(alpha = 0.12f))
+                    .clickable { onSmartFill(null) }.padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.AutoAwesome, null, tint = Brand, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Smart fill", color = Brand, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        // AI suggestion from the copied chat message
+        AnimatedVisibility(visible = smart != null) {
+            smart?.let { s -> SmartBanner(s, onApply = { onApplySmart(s); active = null }, onDismiss = onDismissSmart) }
+        }
+
+        // Content sits at the top of the page. Scrolling only switches on if the content genuinely
+        // doesn't fit (tiny screen / system keyboard open), so normally the page never scrolls.
+        val contentScroll = rememberScrollState()
+        Column(Modifier.weight(1f).verticalScroll(contentScroll, enabled = contentScroll.maxValue > 0)) {
+            // Phone | Till | Paybill | Bank
+            TypeTabs(type) { onTypeChange(it); active = null }
+
+            // Amount - big, tap to edit with the number pad (no label needed)
+            Row(
+                Modifier.fillMaxWidth().noRippleClickable { active = Field.AMOUNT }.padding(top = 24.dp, bottom = 16.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(currencyLabel, color = if (payingWithPayPal) PayPalBlue else TextMain, fontSize = 22.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.width(8.dp))
+                val amt = data["amount"] ?: ""
+                Text(
+                    if (amt.isEmpty()) "0" else amt,
+                    fontSize = 48.sp, fontWeight = FontWeight.Bold,
+                    color = if (amt.isEmpty()) Color(0xFFCCCCCC) else TextMain
+                )
+                if (active == Field.AMOUNT) BlinkingCursor(40.dp)
+            }
+            val usd = data["amount"]?.toDoubleOrNull()
+            if (payingWithPayPal && usd != null && usd > 0) {
+                Text(
+                    "≈ KSh ${"%,.0f".format(usd * KES_PER_USD)} (indicative)", color = TextMuted, fontSize = 12.sp,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), textAlign = TextAlign.Center
+                )
+            }
+            if (flow != null && route != null) RouteHint(flow, route)
+
+            // Recipient details: same plain background as the amount, no card
+            Column(Modifier.fillMaxWidth()) {
+                when (type) {
+                    TransactionType.SEND_MONEY -> {
+                        NumericFieldRow("Phone number", data["phone"] ?: "", "07XXXXXXXX",
+                            active == Field.PHONE, { active = Field.PHONE }, onCameraEdit)
+                    }
+                    TransactionType.TILL -> {
+                        NumericFieldRow("Till number", data["till"] ?: "", "123456",
+                            active == Field.TILL, { active = Field.TILL }, onCameraEdit)
+                    }
+                    TransactionType.PAYBILL -> {
+                        NumericFieldRow("Paybill number", data["paybill"] ?: "", "123456",
+                            active == Field.PAYBILL, { active = Field.PAYBILL }, onCameraEdit)
+                        HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        TextFieldRow(
+                            label = "Account number", value = data["account"] ?: "", placeholder = "Account number",
+                            capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Done,
+                            focusRequester = textRequesters.getValue(Field.ACCOUNT),
+                            onValueChange = { onDataChange(Field.ACCOUNT.key, it.take(Field.ACCOUNT.maxLen)) },
+                            onFocused = { active = Field.ACCOUNT },
+                            onImeAction = { advance(allowPay = false) }
+                        )
+                    }
+                    TransactionType.BANK -> {
+                        DestinationToggle(destination) { onDestinationChange(it); active = null }
+                    }
+                    else -> {}
+                }
+                if (type == TransactionType.BANK && destination == BankDestination.PAYPAL) {
+                    TextFieldRow(
+                        label = "PayPal email", value = data["ppEmail"] ?: "",
+                        placeholder = if (!payingWithPayPal && money.paypal != null) "Blank = your PayPal" else "name@example.com",
+                        capitalization = KeyboardCapitalization.None, imeAction = ImeAction.Done,
+                        focusRequester = textRequesters.getValue(Field.PP_EMAIL),
+                        onValueChange = { onDataChange(Field.PP_EMAIL.key, it.trim().take(Field.PP_EMAIL.maxLen)) },
+                        onFocused = { active = Field.PP_EMAIL },
+                        onImeAction = { advance(allowPay = false) },
+                        keyboardType = KeyboardType.Email,
+                    )
+                } else when (type) {
+                    TransactionType.BANK -> {
+                        TextFieldRow(
+                            label = "Bank name", value = data["bankName"] ?: "", placeholder = "e.g. Equity",
+                            capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next,
+                            focusRequester = textRequesters.getValue(Field.BANK_NAME),
+                            onValueChange = { onDataChange(Field.BANK_NAME.key, it.take(Field.BANK_NAME.maxLen)) },
+                            onFocused = { active = Field.BANK_NAME },
+                            onImeAction = { advance(allowPay = false) }
+                        )
+                        HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        NumericFieldRow("Account number", data["bankAccount"] ?: "", "Account number",
+                            active == Field.BANK_ACCOUNT, { active = Field.BANK_ACCOUNT }, null)
+                    }
+                    else -> {}
+                }
+            }
+
+            // Payee list
+            Text("Payee", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 6.dp))
+            Column(Modifier.fillMaxWidth().background(CardBg)) {
+                if (accounts.isEmpty()) {
+                    Text(
+                        "No accounts yet. Add your M-PESA, banks and PayPal in the HushhBoard app.",
+                        color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(16.dp)
+                    )
+                }
+                accounts.forEachIndexed { i, acc ->
+                    if (i > 0) HorizontalDivider(color = Divider, modifier = Modifier.padding(start = 44.dp))
+                    PayeeRow(acc, acc.id == selectedId) {
+                        selectedId = acc.id
+                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    }
+                }
+                if (money.paypal == null) {
+                    HorizontalDivider(color = Divider, modifier = Modifier.padding(start = 44.dp))
+                    Row(
+                        Modifier.fillMaxWidth().height(30.dp).clickable(onClick = onConnectPayPal).padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.Link, null, tint = PayPalBlue, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("PayPal", color = TextMain, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                        Text("Connect", color = PayPalBlue, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                HorizontalDivider(color = Divider)
+                Row(
+                    Modifier.fillMaxWidth().height(30.dp).clickable { showAddDialog = true },
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.Add, null, tint = Brand, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Add Payee", color = Brand, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+
+        // Confirm and Pay (the pad's big key takes over while the pad is open)
+        if (!padOpen) {
+            Button(
+                onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    selected?.let(onConfirm)
+                },
+                enabled = canPay,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).height(46.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Brand, contentColor = Color.White,
+                    disabledContainerColor = Brand.copy(alpha = 0.4f), disabledContentColor = Color.White
+                )
+            ) {
+                Text(
+                    when (route) {
+                        is PayRoute.Handoff -> "Continue"
+                        is PayRoute.NeedsApi, is PayRoute.NotSupported -> "Review"
+                        is PayRoute.PayPalSend -> "Pay with PayPal"
+                        else -> "Confirm and Pay"
+                    },
+                    fontSize = 15.sp, fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        // In-page number pad (only exists on this screen)
+        AnimatedVisibility(
+            visible = padOpen,
+            enter = slideInVertically { it },
+            exit = slideOutVertically { it }
+        ) {
+            NumberPad(
+                enterLabel = enterLabel,
+                decimalEnabled = active == Field.AMOUNT,
+                onKey = ::onPadKey,
+                onEnter = { advance(allowPay = true) }
+            )
+        }
+    }
+
+    if (showAddDialog) AddPayeeDialog(onDismiss = { showAddDialog = false }) { p, n ->
+        onAddPayee(p, n); showAddDialog = false
+    }
+}
+
+/**
+ * Layout (4 columns x 4 rows, 13 equal keys + 1 tall key):
+ *   1  2  3  [back]
+ *   4  5  6  [    ]
+ *   7  8  9  [ENTER - fills rows 2 to 4 exactly]
+ *   ,  0  .  [    ]
+ */
+@Composable
+private fun NumberPad(
+    enterLabel: String,
+    decimalEnabled: Boolean,
+    onKey: (String) -> Unit,
+    onEnter: () -> Unit,
+) {
+    val keyH = 56.dp
+    val gap = 6.dp
+    val pad = 6.dp
+    val rows = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf(",", "0", "."))
+
+    // Height is set BEFORE padding so the inner area is exactly 4 keys + 3 gaps.
+    Row(
+        Modifier.fillMaxWidth().height(keyH * 4 + gap * 3 + pad * 2).background(PadBg).padding(pad),
+        horizontalArrangement = Arrangement.spacedBy(gap)
+    ) {
+        Column(Modifier.weight(3f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(gap)) {
+            rows.forEach { row ->
+                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    row.forEach { k ->
+                        val isSeparator = k == "." || k == ","
+                        val enabled = !isSeparator || decimalEnabled
+                        KeyBox(
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                            enabled = enabled,
+                            onPress = { onKey(k) }
+                        ) {
+                            Text(
+                                k, fontSize = 24.sp, fontWeight = FontWeight.Medium,
+                                color = if (enabled) TextMain else Color(0xFFB5B5B5)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(gap)) {
+            KeyBox(
+                modifier = Modifier.fillMaxWidth().height(keyH), bg = KeyFn, repeat = true,
+                onPress = { onKey(KEY_BACKSPACE) }
+            ) { Icon(Icons.Rounded.Backspace, "Backspace", tint = TextMain) }
+
+            // Takes everything left in the column: top lines up with "6", bottom with "."
+            KeyBox(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                bg = Brand, pressedBg = BrandPressed,
+                onPress = onEnter
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(enterLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = Color.White)
+                    Icon(Icons.Rounded.KeyboardReturn, null, tint = Color.White, modifier = Modifier.size(26.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KeyBox(
+    modifier: Modifier,
+    bg: Color = KeyBg,
+    pressedBg: Color = KeyPressed,
+    enabled: Boolean = true,
+    repeat: Boolean = false,
+    onPress: () -> Unit,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val view = LocalView.current
+    val current by rememberUpdatedState(onPress)
+    var pressed by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (pressed) pressedBg else bg)
+            .then(
+                if (enabled) Modifier.pointerInput(repeat) {
+                    detectTapGestures(onPress = {
+                        pressed = true
+                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        current()
+                        if (repeat) {
+                            // Hold to keep deleting
+                            coroutineScope {
+                                val job = launch {
+                                    delay(400)
+                                    while (true) { current(); delay(60) }
+                                }
+                                tryAwaitRelease()
+                                job.cancel()
+                            }
+                        } else {
+                            tryAwaitRelease()
+                        }
+                        pressed = false
+                    })
+                } else Modifier
+            ),
+        contentAlignment = Alignment.Center,
+        content = content
+    )
+}
+
+@Composable
+private fun BlinkingCursor(height: Dp) {
+    val transition = rememberInfiniteTransition(label = "cursor")
+    val alpha by transition.animateFloat(
+        initialValue = 1f, targetValue = 0f,
+        animationSpec = infiniteRepeatable(tween(500), RepeatMode.Reverse),
+        label = "cursorAlpha"
+    )
+    Box(Modifier.padding(start = 2.dp).width(2.dp).height(height).background(Brand.copy(alpha = alpha)))
+}
+
+@Composable
+private fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier =
+    clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+
+@Composable
+private fun TypeTabs(type: TransactionType, onChange: (TransactionType) -> Unit) {
+    val tabs = listOf(
+        "Phone" to TransactionType.SEND_MONEY,
+        "Till" to TransactionType.TILL,
+        "Paybill" to TransactionType.PAYBILL,
+        "Bank" to TransactionType.BANK,
+    )
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(18.dp)).background(Color(0xFFE4E4E4)).padding(2.dp)
+    ) {
+        tabs.forEach { (label, t) ->
+            val isActive = t == type
+            Box(
+                Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
+                    .background(if (isActive) Brand else Color.Transparent)
+                    .clickable { onChange(t) }.padding(vertical = 5.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(label, color = if (isActive) Color.White else TextMain, fontSize = 12.sp,
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal)
+            }
+        }
+    }
+}
+
+/** A row that looks like an input but is driven by the in-page number pad (never opens the system keyboard). */
+@Composable
+private fun NumericFieldRow(
+    label: String, value: String, placeholder: String,
+    isActive: Boolean, onClick: () -> Unit, onScan: (() -> Unit)?
+) {
+    Row(
+        Modifier.fillMaxWidth().noRippleClickable(onClick).padding(horizontal = 16.dp).heightIn(min = 40.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = if (isActive) Brand else TextMuted, fontSize = 12.sp, modifier = Modifier.width(104.dp))
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            if (isActive && value.isEmpty()) BlinkingCursor(16.dp)
+            if (value.isEmpty()) Text(placeholder, color = Color(0xFFBBBBBB), fontSize = 14.sp)
+            else Text(value, color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            if (isActive && value.isNotEmpty()) BlinkingCursor(16.dp)
+        }
+        if (onScan != null) {
+            IconButton(onClick = onScan, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Rounded.DocumentScanner, "Scan", tint = Brand, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+/** Normal text input (account number, bank name) - uses the regular keyboard. */
+@Composable
+private fun TextFieldRow(
+    label: String, value: String, placeholder: String,
+    capitalization: KeyboardCapitalization, imeAction: ImeAction,
+    focusRequester: FocusRequester,
+    onValueChange: (String) -> Unit, onFocused: () -> Unit, onImeAction: () -> Unit,
+    keyboardType: KeyboardType = KeyboardType.Text,
+) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = TextMuted, fontSize = 12.sp, modifier = Modifier.width(104.dp))
+        BasicTextField(
+            value = value, onValueChange = onValueChange, singleLine = true,
+            textStyle = TextStyle(fontSize = 14.sp, color = TextMain, textAlign = TextAlign.End, fontWeight = FontWeight.Medium),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = keyboardType, capitalization = capitalization, imeAction = imeAction
+            ),
+            keyboardActions = KeyboardActions(onNext = { onImeAction() }, onDone = { onImeAction() }),
+            cursorBrush = SolidColor(Brand),
+            modifier = Modifier.weight(1f).focusRequester(focusRequester).onFocusChanged { if (it.isFocused) onFocused() },
+            decorationBox = { inner ->
+                Box(contentAlignment = Alignment.CenterEnd) {
+                    if (value.isEmpty()) Text(placeholder, color = Color(0xFFBBBBBB), fontSize = 14.sp, textAlign = TextAlign.End)
+                    inner()
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun PayeeRow(acc: PayAccount, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(30.dp).clickable(onClick = onSelect).padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Small custom checkbox (the Material one forces a 48dp tall row)
+        Box(
+            Modifier.size(16.dp).clip(RoundedCornerShape(4.dp))
+                .background(if (selected) Brand else Color.Transparent)
+                .border(1.5.dp, if (selected) Brand else Color(0xFFBBBBBB), RoundedCornerShape(4.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(12.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(acc.provider, color = TextMain, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        Text(acc.number, color = TextMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun AddPayeeDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
+    var provider by remember { mutableStateOf("") }
+    var number by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Payee") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(provider, { provider = it }, label = { Text("Name (e.g. Equity)") }, singleLine = true)
+                OutlinedTextField(number, { number = it }, label = { Text("Number / account") }, singleLine = true)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onAdd(provider.trim(), number.trim()) }, enabled = provider.isNotBlank() && number.isNotBlank()) {
+                Text("Add", color = Brand)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextMuted) } }
+    )
+}
+
+// ───────────────────────── Money: AI banner, route hint, Bank-tab receiver, outcome dialogs ─────────────────────────
+
+@Composable
+private fun SmartBanner(fill: SmartFill, onApply: () -> Unit, onDismiss: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(10.dp)).background(Color.White)
+            .border(1.dp, Brand.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+            .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Rounded.AutoAwesome, null, tint = Brand, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(fill.summary, color = TextMain, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text("From your copied message · ${fill.engine}", color = TextMuted, fontSize = 10.sp)
+        }
+        TextButton(onClick = onApply) { Text("Fill", color = Brand, fontWeight = FontWeight.Bold) }
+        IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Rounded.Close, "Dismiss", tint = TextMuted, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+/** One line telling the user exactly what Confirm will do, before they tap it. */
+@Composable
+private fun RouteHint(flow: Flow, route: PayRoute) {
+    val (text, color) = when (route) {
+        is PayRoute.Local -> "${flow.label} · pay with your PIN on the M-PESA/Airtel screen" to Brand
+        is PayRoute.PayPalSend -> "${flow.label} · instant PayPal payment, no login needed" to PayPalBlue
+        is PayRoute.Handoff -> "${route.flow.label} · finish in ${route.app.label.removePrefix("Open ")}" to PayPalBlue
+        is PayRoute.NeedsApi -> "${route.flow.label} · ready, waiting for ${route.partner} API" to AmberText
+        is PayRoute.NotSupported -> "Not supported for this payment method" to Color(0xFFD32F2F)
+    }
+    Text(
+        text, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 10.dp)
+    )
+}
+
+@Composable
+private fun DestinationToggle(dest: BankDestination, onChange: (BankDestination) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("Send to", color = TextMuted, fontSize = 12.sp, modifier = Modifier.width(104.dp))
+        listOf(BankDestination.BANK_ACCOUNT to "Bank account", BankDestination.PAYPAL to "PayPal").forEach { (d, label) ->
+            val on = d == dest
+            Text(
+                label, fontSize = 12.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (on) Color.White else TextMain,
+                modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(14.dp))
+                    .background(if (on) (if (d == BankDestination.PAYPAL) PayPalBlue else Brand) else Color(0xFFE4E4E4))
+                    .clickable { onChange(d) }.padding(horizontal = 12.dp, vertical = 5.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PayOutcomeDialog(
+    outcome: PayOutcome,
+    onDismiss: () -> Unit,
+    onOpenApp: (HandoffApp) -> Unit,
+    onSendPayPal: (String, Double) -> Unit,
+    onDone: () -> Unit,
+) {
+    when (outcome) {
+        is PayOutcome.ConfirmPayPal -> AlertDialog(
+            onDismissRequest = onDismiss,
+            icon = { Icon(Icons.Rounded.Public, null, tint = PayPalBlue) },
+            title = { Text("Pay with PayPal") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("USD ${"%.2f".format(outcome.amount)} to ${outcome.email}", fontWeight = FontWeight.SemiBold)
+                    Text("≈ KSh ${"%,.0f".format(outcome.amount * KES_PER_USD)}. Paid from your connected PayPal - PayPal processes it and you won't need to log in.", fontSize = 13.sp, color = TextMuted)
+                }
+            },
+            confirmButton = {
+                Button(onClick = { onSendPayPal(outcome.email, outcome.amount) }, colors = ButtonDefaults.buttonColors(containerColor = PayPalBlue)) { Text("Pay now") }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextMuted) } }
+        )
+        PayOutcome.Sending -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Paying with PayPal…") },
+            text = { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(22.dp), color = PayPalBlue, strokeWidth = 2.dp); Spacer(Modifier.width(12.dp)); Text("Talking to PayPal") } },
+            confirmButton = {}
+        )
+        is PayOutcome.Sent -> AlertDialog(
+            onDismissRequest = onDone,
+            icon = { Icon(Icons.Rounded.CheckCircle, null, tint = Brand, modifier = Modifier.size(40.dp)) },
+            title = { Text(if (outcome.payment.status == "COMPLETED") "Paid ✓" else "Payment ${outcome.payment.status.lowercase()}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("${outcome.payment.currency ?: "USD"} ${outcome.payment.amount} to ${outcome.email}", fontWeight = FontWeight.SemiBold)
+                    outcome.payment.kesEstimate?.let { Text("≈ KSh ${"%,d".format(it)}", fontSize = 13.sp, color = TextMuted) }
+                    Text("PayPal ref ${outcome.payment.id}", fontSize = 12.sp, color = TextMuted)
+                }
+            },
+            confirmButton = { TextButton(onClick = onDone) { Text("Done", color = Brand, fontWeight = FontWeight.Bold) } }
+        )
+        is PayOutcome.Failed -> AlertDialog(
+            onDismissRequest = onDismiss,
+            icon = { Icon(Icons.Rounded.ErrorOutline, null, tint = Color(0xFFD32F2F)) },
+            title = { Text("PayPal didn't complete it") },
+            text = { Text(outcome.message) },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } }
+        )
+        is PayOutcome.Route -> when (val r = outcome.route) {
+            is PayRoute.Handoff -> AlertDialog(
+                onDismissRequest = onDismiss,
+                icon = { Icon(Icons.Rounded.OpenInNew, null, tint = PayPalBlue) },
+                title = { Text(r.title) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(r.flow.label.uppercase(), color = PayPalBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        r.steps.forEachIndexed { i, step -> Text("${i + 1}. $step", fontSize = 13.sp) }
+                        Text("This step happens in the official app, so your PIN and password stay there.", fontSize = 12.sp, color = TextMuted)
+                    }
+                },
+                confirmButton = { Button(onClick = { onOpenApp(r.app) }, colors = ButtonDefaults.buttonColors(containerColor = PayPalBlue)) { Text(r.app.label) } },
+                dismissButton = { TextButton(onClick = onDismiss) { Text("Not now", color = TextMuted) } }
+            )
+            is PayRoute.NeedsApi -> AlertDialog(
+                onDismissRequest = onDismiss,
+                icon = { Icon(Icons.Rounded.Hub, null, tint = AmberText) },
+                title = { Text(r.title) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${r.flow.label.uppercase()} · READY FOR ${r.partner.uppercase()}", color = AmberText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(r.message, fontSize = 13.sp)
+                        Text("No money moved. This flow goes live when the partner API is enabled for HushhBoard.", fontSize = 12.sp, color = TextMuted)
+                    }
+                },
+                confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } }
+            )
+            is PayRoute.NotSupported -> AlertDialog(
+                onDismissRequest = onDismiss,
+                icon = { Icon(Icons.Rounded.Block, null, tint = Color(0xFFD32F2F)) },
+                title = { Text("Not supported") },
+                text = { Text(r.message) },
+                confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } }
+            )
+            else -> LaunchedEffect(r) { onDismiss() }
+        }
+    }
+}

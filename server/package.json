@@ -1,0 +1,16 @@
+{
+  "name": "hushhboard-money-server",
+  "version": "1.0.0",
+  "description": "HushhBoard money server: keeps the PayPal secret off the phone, saves PayPal with the Vault API and runs PayPal payments.",
+  "main": "index.js",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

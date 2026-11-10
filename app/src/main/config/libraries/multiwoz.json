@@ -1,0 +1,15 @@
+{
+  "uniqueId": "multiwoz",
+  "name": "MultiWOZ 2.2 dialogue dataset",
+  "description": "Dialogue text used to train the HushhBoard next-word model. Copyright (c) 2019 Paweł Budzianowski. MIT License.",
+  "developers": [
+    {
+      "name": "Paweł Budzianowski and MultiWOZ contributors",
+      "organisationUrl": "https://github.com/budzianowski"
+    }
+  ],
+  "website": "https://github.com/budzianowski/multiwoz",
+  "licenses": [
+    "MIT"
+  ]
+}

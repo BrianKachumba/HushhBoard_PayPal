@@ -1,0 +1,15 @@
+{
+  "uniqueId": "mozilla-common-voice-text",
+  "name": "Mozilla Common Voice sentence corpus (English, Swahili)",
+  "description": "Sentences used to train the HushhBoard next-word model. Released under CC0 1.0 (public domain).",
+  "developers": [
+    {
+      "name": "Mozilla Foundation and Common Voice contributors",
+      "organisationUrl": "https://commonvoice.mozilla.org"
+    }
+  ],
+  "website": "https://github.com/common-voice/common-voice",
+  "licenses": [
+    "CC0-1.0"
+  ]
+}

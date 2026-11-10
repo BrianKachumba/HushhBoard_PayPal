@@ -1,0 +1,269 @@
+Habari yako?
+Habari yako rafiki?
+Habari ya asubuhi.
+Habari ya asubuhi, umeamkaje?
+Habari ya mchana.
+Habari ya jioni.
+Habari ya leo?
+Habari za asubuhi.
+Habari za leo?
+Habari za kazi?
+Habari za nyumbani?
+Habari za siku nyingi.
+Nzuri sana, asante.
+Nzuri, na wewe?
+Salama, na wewe je?
+Mzuri sana.
+Niko poa.
+Niko poa sana, wewe je?
+Niko sawa.
+Niko nyumbani.
+Niko kazini.
+Niko njiani.
+Niko njiani nakuja.
+Niko town.
+Niko karibu kufika.
+Niko hapa nje.
+Niko kwa gari.
+Niko shule.
+Niko busy kidogo.
+Uko wapi?
+Uko wapi sasa hivi?
+Uko nyumbani?
+Uko sawa?
+Uko poa?
+Uko kazini?
+Uko busy?
+Nakuja sasa hivi.
+Nakuja.
+Nakuja kesho.
+Nitakuja kesho.
+Nitakuja jioni.
+Nitakupigia baadaye.
+Nitakupigia simu jioni.
+Nitakutumia pesa kesho.
+Nitakutumia sasa hivi.
+Nitakuambia baadaye.
+Nitakujulisha.
+Nitafika saa mbili.
+Nimefika salama.
+Nimefika nyumbani.
+Nimefika.
+Nimetuma pesa.
+Nimetuma.
+Nimepokea, asante.
+Nimepokea pesa.
+Nimeona ujumbe wako.
+Nimechoka sana.
+Nimelala.
+Nimeamka sasa.
+Nimekula.
+Nimekosa.
+Nimekumiss sana.
+Nakupenda sana.
+Nakupenda.
+Nakumiss.
+Nakuombea.
+Nataka kukuona.
+Nataka kwenda nyumbani.
+Nataka kujua.
+Nataka kununua simu.
+Nataka kula.
+Naomba unitumie pesa.
+Naomba unipigie.
+Naomba msaada.
+Naomba namba yako.
+Naomba location.
+Tafadhali nipigie.
+Tafadhali nitumie pesa.
+Tafadhali ningoje.
+Tafadhali niambie.
+Asante sana.
+Asante sana rafiki.
+Asante kwa kila kitu.
+Asante kwa msaada wako.
+Asante, Mungu akubariki.
+Karibu sana.
+Karibu.
+Karibu tena.
+Sawa sawa.
+Sawa, nitakupigia.
+Sawa, tutaonana.
+Sawa, hakuna shida.
+Sawa basi.
+Sawa, asante.
+Hakuna shida.
+Hakuna matata.
+Pole sana.
+Pole kwa kazi.
+Pole, nilikuwa busy.
+Samahani kwa kuchelewa.
+Samahani, sikuona simu yako.
+Usijali.
+Usijali, nitafika.
+Tutaonana kesho.
+Tutaonana baadaye.
+Tutaonana jioni.
+Tutaongea baadaye.
+Tuonane kesho.
+Tuonane saa kumi.
+Twende.
+Twende nyumbani.
+Twende kanisani.
+Lala salama.
+Usiku mwema.
+Siku njema.
+Kuwa na siku njema.
+Safari njema.
+Mungu akubariki.
+Mungu akulinde.
+Heri ya siku ya kuzaliwa.
+Heri ya mwaka mpya.
+Hongera sana.
+Umefika?
+Umefika salama?
+Umekula?
+Umeamkaje?
+Umelala?
+Umepata pesa?
+Umepokea?
+Umeona ujumbe wangu?
+Unafanya nini?
+Unafanya nini sasa?
+Unakuja lini?
+Unakuja saa ngapi?
+Unataka nini?
+Unaenda wapi?
+Unarudi lini?
+Una shida gani?
+Ni sawa.
+Ni poa.
+Ni kweli.
+Ni bei gani?
+Ni saa ngapi?
+Ni nani?
+Ni wapi?
+Ni mimi.
+Ni nzuri sana.
+Bei gani?
+Ngapi?
+Saa ngapi?
+Lini?
+Wapi?
+Kwa nini?
+Kwa sababu nilikuwa busy.
+Leo ni siku nzuri.
+Leo sitakuja.
+Leo niko busy.
+Kesho asubuhi.
+Kesho nitakuja.
+Kesho tutaonana.
+Mimi niko sawa.
+Mimi niko nyumbani.
+Mimi ni mwalimu.
+Mimi sijui.
+Mimi pia.
+Wewe uko wapi?
+Wewe ni nani?
+Wewe je?
+Sijui.
+Sijui bado.
+Sina pesa.
+Sina shida.
+Sina time.
+Sikuoni.
+Sijapata.
+Sijapokea bado.
+Sijafika bado.
+Siwezi kuja leo.
+Siwezi leo.
+Ningoje.
+Ningoje kidogo.
+Ngoja kidogo.
+Ngoja nikupigie.
+Nipigie.
+Nipigie ukifika.
+Nipigie baadaye.
+Nitumie pesa.
+Nitumie namba.
+Nitumie location.
+Nitumie ujumbe ukifika.
+Niambie.
+Niambie ukifika.
+Nisaidie.
+Tafadhali.
+Pesa nimetuma.
+Pesa imefika?
+Tuma kwa M-Pesa.
+Nitatuma kwa M-Pesa.
+Chakula iko tayari.
+Chai iko tayari.
+Mvua inanyesha hapa.
+Kuna jam sana leo.
+Kuna mkutano kesho.
+Mkutano ni saa nne.
+Nyumbani wote wako sawa?
+Mama yuko sawa?
+Watoto wako sawa?
+Niaje msee?
+Niaje bro?
+Niaje, uko poa?
+Mambo vipi?
+Mambo, uko aje?
+Poa sana.
+Poa, wewe je?
+Fiti sana.
+Uko aje?
+Uko aje bro?
+Ni aje?
+Sema.
+Sema bro.
+Sasa msee.
+Sasa, uko wapi?
+Kuna nini?
+Hakuna kitu.
+Niko chill.
+Niko area.
+Niko kwa mat.
+Nimekwama kwa jam.
+Tupatane town.
+Tupatane kesho.
+Tukutane saa nane.
+Tukutane town.
+Wacha nikupigie.
+Wacha niangalie.
+Wacha nifike kwanza.
+Nitakucheki baadaye.
+Cheki hii.
+Nitumie doh.
+Sina doh.
+Doh imeingia?
+Tuma doh.
+Form ni gani?
+Form ni nini leo?
+Ni form gani?
+Uko na form?
+Uko kwa keja?
+Niko kwa keja.
+Wasee wako wapi?
+Msee wangu.
+Bro uko wapi?
+Ni sawa bro.
+Sawa msee.
+Shukran.
+Shukran sana.
+Asante bro.
+Uko na shida?
+Hakuna noma.
+Ni noma.
+Usijali bro.
+Tuko pamoja.
+Tuko njiani.
+Tuko hapa.
+Tutafika saa tatu.
+Wamefika.
+Amefika.
+Hajafika bado.
+Hajapiga simu.
+Yuko nyumbani.
+Yuko kazini.

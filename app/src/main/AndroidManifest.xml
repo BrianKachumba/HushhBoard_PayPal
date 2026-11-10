@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+
+    <!-- Permission needed to vibrate if the user has key press vibration enabled -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+
+    <!-- Permission needed to create notifications on devices running Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+
+    <!-- Android 11+ only: Define that FlorisBoard requests to see all apps that
+          ship with an IME or Spell Check service. This is used to guide the user
+          in the Settings Ui why FlorisBoard may not be working.
+     -->
+
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- 🚀 HUSHHBOARD "ears": identify the song playing on the phone (playback capture) or around you -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
+
+
+
+
+    <queries>
+        <intent>
+            <action android:name="android.view.InputMethod"/>
+        </intent>
+        <intent>
+            <action android:name="android.service.textservice.SpellCheckerService"/>
+        </intent>
+        <!-- PayPal hackathon: hand-offs to the official apps, and PayPal's login in a Custom Tab -->
+        <package android:name="com.safaricom.mpesa.lifestyle"/>
+        <package android:name="com.paypal.android.p2pmobile"/>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService"/>
+        </intent>
+    </queries>
+
+    <application
+        android:name="dev.patrickgold.florisboard.FlorisApplication"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/backup_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/floris_app_name"
+        android:enableOnBackInvokedCallback="true"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/FlorisAppTheme"
+        tools:targetApi="tiramisu">
+
+        <!-- Allow app to be profiled for benchmarking and baseline profile generation -->
+        <profileable android:shell="true"/>
+
+        <!-- IME service -->
+        <service
+            android:name="dev.patrickgold.florisboard.FlorisImeService"
+            android:label="@string/floris_app_name"
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:directBootAware="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.view.InputMethod"/>
+            </intent-filter>
+            <meta-data android:name="android.view.im" android:resource="@xml/method"/>
+        </service>
+
+        <!-- Spellchecker service -->
+        <service
+            android:name="dev.patrickgold.florisboard.FlorisSpellCheckerService"
+            android:label="@string/floris_app_name"
+            android:permission="android.permission.BIND_TEXT_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.textservice.SpellCheckerService"/>
+            </intent-filter>
+            <meta-data android:name="android.view.textservice.scs" android:resource="@xml/spellchecker"/>
+        </service>
+        <!-- 🌟 HUSHHBOARD DASHBOARD (The New Gatekeeper) 🌟 -->
+        <!-- ⚡ KEYBOARD-FIRST: every HushhBoard feature screen/receiver runs in its own ":hushh" process.
+             Their memory (Room, CameraX, ML Kit, OkHttp, charts) never lands in the keyboard's process,
+             Android can reclaim it as soon as you leave them, and a crash in a feature can't take the
+             keyboard down. FlorisApplication skips all keyboard setup in that process. -->
+        <activity
+            android:name=".HushDashboardActivity"
+            android:process=":hushh"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:theme="@style/Theme.HushhBoard.Starting">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- ⚙️ THE OLD FLORISBOARD SETTINGS (Hidden from Launcher) ⚙️ -->
+        <activity
+            android:name="dev.patrickgold.florisboard.app.FlorisAppActivity"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/settings__title"
+            android:launchMode="singleTask"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/FlorisAppTheme.Splash"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="ui" android:host="florisboard" android:pathPrefix="/" />
+            </intent-filter>
+            <intent-filter android:label="Import Extension">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="content"/>
+                <data android:mimeType="application/vnd.florisboard.extension+zip"/>
+                <data android:mimeType="application/octet-stream"/>
+            </intent-filter>
+            <intent-filter android:label="Import Extension">
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="application/vnd.florisboard.extension+zip"/>
+                <data android:mimeType="application/octet-stream"/>
+            </intent-filter>
+        </activity>
+
+        <!-- NOTE: The activity-alias was intentionally removed to ensure the HushhBoard icon always stays on the user's home screen! -->
+
+        <!-- Crash Dialog Activity -->
+        <activity
+            android:name="dev.patrickgold.florisboard.lib.crashutility.CrashDialogActivity"
+            android:icon="@mipmap/floris_app_icon"
+            android:label="@string/crash_dialog__title"
+            android:configChanges="orientation|screenSize"
+            android:theme="@style/CrashDialogTheme"/>
+
+        <activity
+            android:name="dev.patrickgold.florisboard.TransparentCameraActivity"
+            android:process=":hushh"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:screenOrientation="portrait"
+            android:taskAffinity=""
+            android:hardwareAccelerated="true"
+            tools:ignore="LockedOrientationActivity" />
+
+
+        <!-- Copy to Clipboard Activity -->
+        <activity
+            android:name="dev.patrickgold.florisboard.ime.clipboard.FlorisCopyToClipboardActivity"
+            android:theme="@style/FlorisAppTheme.Transparent"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="image/*"/>
+            </intent-filter>
+        </activity>
+
+        <!-- Clipboard Media File Provider -->
+        <provider
+            android:name="dev.patrickgold.florisboard.ime.clipboard.provider.ClipboardMediaProvider"
+            android:authorities="${applicationId}.provider.clipboard"
+            android:grantUriPermissions="true"
+            android:exported="false">
+        </provider>
+
+        <!-- Default file provider to share files from the "files" or "cache" dir -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider.file"
+            android:grantUriPermissions="true"
+            android:exported="false">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
+
+        <!-- ⚡ KEYBOARD-FIRST: don't start ML Kit in the keyboard process at app launch.
+             It is only used by the camera screen and is initialised in the ":hushh" process
+             by FlorisApplication instead. -->
+        <provider
+            android:name="com.google.mlkit.common.internal.MlKitInitProvider"
+            android:authorities="${applicationId}.mlkitinitprovider"
+            tools:node="remove"/>
+
+        <!-- Disable default EmojiCompat initializer -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+                tools:node="remove"/>
+        </provider>
+        <activity
+            android:name="dev.patrickgold.florisboard.ussd.UssdConfirmationActivity"
+            android:process=":hushh"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+
+        <!-- PayPal: PayPal's pages redirect back here after "Connect PayPal" -->
+        <activity
+            android:name="dev.patrickgold.florisboard.money.PayPalReturnActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hushhboard" android:host="paypal" />
+            </intent-filter>
+        </activity>
+
+        <!-- 🚀 HUSHHBOARD "ears": floating song search over the current app -->
+        <activity
+            android:name=".ears.SongCaptureActivity"
+            android:process=":hushh"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+
+        <service
+            android:name=".ears.PlaybackCaptureService"
+            android:process=":hushh"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <receiver
+            android:name=".ussd.MpesaSmsReceiver"
+            android:process=":hushh"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+
+        <activity
+            android:name=".ussd.ProcessTextActivity"
+            android:process=":hushh"
+            android:label="@string/hushh__pay_selection_label"
+            android:enabled="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>

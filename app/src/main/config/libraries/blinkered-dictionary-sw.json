@@ -1,0 +1,15 @@
+{
+  "uniqueId": "blinkered-dictionary-sw",
+  "name": "Blinkered dictionary: Swahili",
+  "description": "Swahili word list and occurrence counts used by the HushhBoard word engine.",
+  "developers": [
+    {
+      "name": "Tight Line LLC",
+      "organisationUrl": "https://github.com/blinkered"
+    }
+  ],
+  "website": "https://github.com/blinkered/blinkered-dictionary-sw",
+  "licenses": [
+    "CC0-1.0"
+  ]
+}
