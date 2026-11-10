@@ -23,6 +23,8 @@ data class SmartFill(
     val currency: String,
     val summary: String,
     val engine: String,
+    /** Set when the message is about buying something: search Channel3 for it. */
+    val shopQuery: String? = null,
 )
 
 /**
@@ -84,6 +86,17 @@ object MoneyAi {
     private val USD_RULE = Regex("""(?i)(?:\$|usd|us\$)\s?(\d+(?:[.,]\d{1,2})?)|(\d+(?:[.,]\d{1,2})?)\s?(?:usd|dollars?|bucks)\b""")
     private val PAYPAL_WORD = Regex("""(?i)\bpay\s?pal\b|\bpaypal\.me/""")
     private val BANK_WORD = Regex("""(?i)\b(equity|kcb|co-?op(?:erative)?|absa|ncba|stanbic|standard chartered|i&m|dtb|diamond trust|family bank)\b""")
+    private val SHOP = Regex("""(?i)\b(?:buy|get me|order|price of|how much (?:is|are|for)|looking for|shopping for|nunua|ninunulie|niletee)\s+(?:a |an |the |me |some )?([\p{L}\p{N}][\p{L}\p{N} .+&'/-]{2,60})""")
+
+    /** "can you get me the Sony WH-1000XM5 please?" -> "Sony WH-1000XM5" */
+    fun shoppingQuery(text: String): String? {
+        val m = SHOP.find(text) ?: return null
+        return m.groupValues[1]
+            .replace(Regex("""(?i)\s+(?:for me|please|pls|plz|asap|today|kwa|bana|tafadhali|on paypal|with paypal|via paypal)\b.*$"""), "")
+            .trim(' ', '.', ',', '?', '!')
+            .takeIf { it.length >= 3 }
+    }
+
     private val BANK_ACC = Regex("""(?i)(?:a/?c|acc(?:ount)?(?:\s*(?:no|number))?)\s*[:.#-]?\s*(\d{6,20})""")
 
     suspend fun understand(text: String): SmartFill? {
@@ -136,6 +149,13 @@ object MoneyAi {
                 PayTab.BANK, BankDestination.PAYPAL, true, amt + ("ppEmail" to email), "USD",
                 "Pay $email on PayPal", engine,
             )
+            shoppingQuery(clean) != null -> {
+                val q = shoppingQuery(clean)!!
+                SmartFill(
+                    PayTab.BANK, BankDestination.PAYPAL, true, amt, "USD",
+                    "Find \"$q\" and pay with PayPal", "$engine + Channel3 product search", shopQuery = q,
+                )
+            }
             amount != null -> SmartFill(PayTab.PHONE, BankDestination.BANK_ACCOUNT, mentionsPayPal, amt, currency, "Amount ${amountText(amount, currency)}", engine)
             else -> null
         }

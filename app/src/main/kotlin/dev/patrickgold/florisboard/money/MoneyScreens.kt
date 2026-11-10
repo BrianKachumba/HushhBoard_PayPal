@@ -98,8 +98,25 @@ fun MoneyHomeScreen() {
     val accounts by MoneyStore.accounts.collectAsState()
     val activity = accounts.activity
     var showRequest by remember { mutableStateOf(false) }
+    var shopQuery by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { MoneyStore.load(ctx) }
     SyncPayPalOnResume()
+    shopQuery?.let { q ->
+        ShopDialog(q, onDismiss = { shopQuery = null }) { action ->
+            if (action is ShopAction.PayWithPayPal) {
+                val p = action.product
+                ctx.startActivity(
+                    Intent(ctx, dev.patrickgold.florisboard.ussd.UssdConfirmationActivity::class.java)
+                        .putExtra(dev.patrickgold.florisboard.ussd.UssdConfirmationActivity.EXTRA_PAY_TYPE, "BANK_PAYPAL")
+                        .putExtra(
+                            dev.patrickgold.florisboard.ussd.UssdConfirmationActivity.EXTRA_PAY_FIELDS,
+                            hashMapOf("amount" to "%.2f".format(Locale.US, p.price), "note" to p.title.take(100)),
+                        )
+                )
+            }
+            shopQuery = null
+        }
+    }
     LaunchedEffect(accounts.paypal) { if (accounts.paypal != null) MoneyApi.refreshActivity(ctx) }
 
     Column(Modifier.fillMaxSize().background(HushhTheme.Bg).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -117,6 +134,7 @@ fun MoneyHomeScreen() {
                 }
             }
         }
+        if (accounts.paypal != null) ShopSearchCard { shopQuery = it }
         AccountsEditor(accounts)
         if (accounts.paypal != null) {
             SectionTitle("PayPal activity", Icons.Rounded.History)
@@ -146,6 +164,31 @@ fun MoneyHomeScreen() {
                     )
                 }
                 is ApiResult.Err -> Toast.makeText(ctx, r.message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShopSearchCard(onSearch: (String) -> Unit) {
+    var q by remember { mutableStateOf("") }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = HushhTheme.Surface), shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, HushhTheme.BorderSubtle), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.ShoppingBag, null, tint = PayPalBlue, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Shop abroad with PayPal", color = Color.White, fontWeight = FontWeight.SemiBold)
+            }
+            Text("Live prices from 25,000+ stores (Channel3). Pay or ask someone to chip in with PayPal.", color = HushhTheme.TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { DarkField(q, { q = it.take(80) }, "e.g. Sony WH-1000XM5", KeyboardType.Text) }
+                Spacer(Modifier.width(8.dp))
+                FilledIconButton(onClick = { if (q.trim().length >= 2) onSearch(q.trim()) }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = PayPalBlue)) {
+                    Icon(Icons.Rounded.Search, "Search", tint = Color.White)
+                }
             }
         }
     }

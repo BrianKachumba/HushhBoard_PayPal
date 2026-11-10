@@ -19,6 +19,8 @@ services:
         sync: false
       - key: PAYPAL_CLIENT_SECRET
         sync: false
+      - key: CHANNEL3_API_KEY
+        sync: false
       - key: LINK_SECRET
         generateValue: true
       - key: FX_KES_PER_USD

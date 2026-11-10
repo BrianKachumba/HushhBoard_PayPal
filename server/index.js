@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import express from 'express';
 import * as paypal from './paypal.js';
 import { seal, open } from './seal.js';
+import { searchProducts, productsConfigured } from './products.js';
 
 const app = express();
 app.use(express.json({ limit: '32kb' }));
@@ -80,7 +81,7 @@ ${href ? `<a class="btn" href="${esc(href)}">${esc(label)}</a>` : ''}
 </div>${autoOpen && href ? `<script>setTimeout(function(){location.href=${JSON.stringify(href)}},600)</script>` : ''}</body></html>`;
 
 // ---------- health / config ----------
-app.get('/', (_req, res) => res.json({ service: 'hushhboard-money', paypal: paypal.configured() ? 'sandbox-ready' : 'missing-credentials' }));
+app.get('/', (_req, res) => res.json({ service: 'hushhboard-money', paypal: paypal.configured() ? 'sandbox-ready' : 'missing-credentials', products: productsConfigured() ? 'channel3-ready' : 'off' }));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/api/fx', (_req, res) => res.json({ base: 'USD', quote: 'KES', rate: KES_PER_USD, note: 'Indicative CBK mean rate; PayPal applies its own conversion.' }));
 
@@ -186,6 +187,22 @@ app.get('/paypal/paid', async (req, res) => {
 });
 
 app.get('/paypal/declined', (_req, res) => res.send(page('Payment cancelled', 'You cancelled on PayPal. Nothing was charged.', { ok: false })));
+
+// ---------- Shopping (Channel3): find the product and its live price ----------
+app.get('/api/products', async (req, res) => {
+  const dev = device(req, res); if (!dev) return;
+  const q = String(req.query.q || '').trim().slice(0, 120);
+  if (q.length < 2) return res.status(400).json({ error: 'QUERY_REQUIRED', message: 'Type what you want to buy.' });
+  if (!productsConfigured()) return res.status(503).json({ error: 'PRODUCTS_OFF', message: 'Product search is not configured.' });
+  try {
+    const maxPrice = Number(req.query.max) > 0 ? Number(req.query.max) : undefined;
+    const items = await searchProducts(q, { limit: 6, maxPrice });
+    res.json({ query: q, items, kesPerUsd: KES_PER_USD });
+  } catch (err) {
+    console.error('[channel3]', err.message);
+    res.status(502).json({ error: 'PRODUCTS_FAILED', message: 'Product search is unavailable right now.' });
+  }
+});
 
 // ---------- Status of one of the user's own orders ----------
 app.get('/api/paypal/orders/:id', async (req, res) => {

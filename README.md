@@ -35,11 +35,19 @@ The **"ready, waiting for API"** screens are deliberate. They show partners (Pay
 
 **Request money with PayPal.** On the Home tab, *Request via PayPal* creates a PayPal pay link you can drop into any chat. Your client abroad pays on PayPal, and HushhBoard shows **Paid ✓** in your activity.
 
+**Shop abroad with PayPal (Channel3).** Copy *"can you get me the Sony WH-1000XM5?"* and open Pay. The AI spots the shopping request, and [Channel3](https://trychannel3.com) finds the product across 25,000+ stores with live prices. Pick one and HushhBoard can:
+- prepare a **PayPal payment** for exactly that amount (for example to the friend who is buying it),
+- create a **PayPal request**, so someone can chip in for it, shared with the store link,
+- or open the store.
+
+The same search sits on the Home tab ("Shop abroad with PayPal").
+
 ## Where the AI is
 
 - **Google ML Kit Entity Extraction:** an on-device ML model that finds money (with currency), emails, phone numbers and IBANs in free text. It runs offline and the message never leaves the phone.
 - **HushhBoard's Kenyan entity layer:** tills, paybills with account numbers, M-PESA formats, Kenyan phone networks and bank names, built on our keyboard NLP library (`lib/nlp`).
 - **Intent and routing:** decides who to pay, which rail (PayPal, M-PESA or bank) and whether the move is a withdrawal, a credit or a payment.
+- **Shopping intent:** "get me / buy / how much is / nunua…" becomes a Channel3 product search. The AI prepares the PayPal payment or request at the live price.
 - **Never auto-pays:** the AI fills in the payment; the user confirms. This is the agentic-commerce pattern with a human in the loop.
 
 ## Architecture
@@ -58,15 +66,24 @@ Keyboard toolbar [Pay] ──► Pay screen (Compose) ──► PayRouter ──
 - `app/src/main/kotlin/dev/patrickgold/florisboard/money/`: accounts store, PayPal client, router, the AI layer, and the setup and Home screens.
 - `app/src/main/kotlin/dev/patrickgold/florisboard/ussd/UssdConfirmationActivity.kt`: the pay screen, now with PayPal.
 
+## Partner tools used
+
+| Partner | How HushhBoard uses it |
+| --- | --- |
+| **PayPal** | Vault v3 (connect once, no re-login), Orders v2 (pay with a saved PayPal, payment requests and capture), all in the sandbox |
+| **Render** | The money server runs on Render from `render.yaml` (Blueprint): a free web service with health checks and the secrets in Render's environment |
+| **Channel3** | `POST /v1/search` behind our server (`/api/products`) powers "shop abroad with PayPal": product, live price, store, buy link |
+| **APIMatic Context Plugin (PayPal)** | The PayPal integration was checked against the plugin's SDK map (Vault and Orders field shapes). That check added `stored_credential` for customer-initiated payments with a saved PayPal and `usage_pattern` on setup tokens. The plugin files are in `tools/context-plugins/paypal` |
+
 ## Run it
 
 ### 1. Server
 ```bash
 cd server
 npm install
-PAYPAL_CLIENT_ID=... PAYPAL_CLIENT_SECRET=... PUBLIC_URL=https://your-host npm start
+PAYPAL_CLIENT_ID=... PAYPAL_CLIENT_SECRET=... CHANNEL3_API_KEY=... PUBLIC_URL=https://your-host npm start
 ```
-Or deploy with one click on Render: **New → Blueprint →** pick this repo (`render.yaml`), then paste your **sandbox** Client ID and Secret. In the PayPal developer dashboard, the app needs **Vault** and **Log in with PayPal** enabled.
+Or deploy with one click on Render: **New → Blueprint →** pick this repo (`render.yaml`), then paste your **sandbox** Client ID and Secret, plus your Channel3 API key. In the PayPal developer dashboard, the app needs **Vault** and **Log in with PayPal** enabled.
 
 ### 2. App
 The CI builds a debug APK on every push to `main` (Actions → latest run → `app-debug` artifact). To build locally:

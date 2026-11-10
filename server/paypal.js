@@ -1,4 +1,6 @@
 // Thin PayPal REST client (sandbox by default). Uses Node's built-in fetch.
+// Request shapes verified with the APIMatic PayPal Context Plugin (tools/context-plugins/paypal) and its SDK map
+// (Vault: createSetupToken / createPaymentToken / deletePaymentToken; Orders: createOrder / captureOrder / getOrder).
 // The client secret lives only here, on the server - never in the app.
 
 const BASE = process.env.PAYPAL_API_BASE || 'https://api-m.sandbox.paypal.com';
@@ -61,12 +63,14 @@ export async function createSetupToken({ returnUrl, cancelUrl, requestId }) {
         usage_type: 'MERCHANT',
         customer_type: 'CONSUMER',
         permit_multiple_payment_tokens: true,
+        usage_pattern: 'IMMEDIATE',
         experience_context: {
           brand_name: 'HushhBoard',
           return_url: returnUrl,
           cancel_url: cancelUrl,
           shipping_preference: 'NO_SHIPPING',
           vault_instruction: 'ON_PAYER_APPROVAL',
+          user_action: 'CONTINUE',
         },
       },
     },
@@ -107,7 +111,14 @@ export async function payWithVault({ vaultId, payeeEmail, amount, currency, note
   let order = await call('POST', '/v2/checkout/orders', {
     intent: 'CAPTURE',
     purchase_units: [purchaseUnit],
-    payment_source: { paypal: { vault_id: vaultId } },
+    // The user taps Pay each time, so this is a customer-initiated payment with a saved PayPal
+    // (field names checked against the APIMatic PayPal SDK map: PayPalWallet + PayPalWalletStoredCredential).
+    payment_source: {
+      paypal: {
+        vault_id: vaultId,
+        stored_credential: { payment_initiator: 'CUSTOMER', usage: 'SUBSEQUENT', usage_pattern: 'IMMEDIATE' },
+      },
+    },
   }, { requestId });
   if (order.status === 'APPROVED' || order.status === 'CREATED') {
     order = await call('POST', `/v2/checkout/orders/${order.id}/capture`, {}, { requestId: `cap-${order.id}` });

@@ -22,6 +22,12 @@ data class PayPalStatus(val connected: Boolean, val email: String?, val name: St
 data class PayPalPayment(val id: String, val status: String, val amount: String?, val currency: String?, val kesEstimate: Long?)
 data class PayPalRequest(val id: String, val approveUrl: String, val shareText: String)
 
+/** A product found by Channel3, with its best live offer. */
+data class ShopProduct(
+    val id: String, val title: String, val brand: String, val image: String,
+    val price: Double, val currency: String, val store: String, val url: String, val inStock: Boolean, val offerCount: Int,
+)
+
 /**
  * Talks to the HushhBoard money server (see /server). The PayPal client secret lives only there;
  * the app identifies itself with a random per-install device token.
@@ -103,6 +109,26 @@ object MoneyApi {
                 val req = PayPalRequest(r.value.optString("id"), r.value.optString("approveUrl"), r.value.optString("shareText"))
                 MoneyStore.recordActivity(ctx, MoneyActivity(req.id, "request", "WAITING", amount, currency, from, note, System.currentTimeMillis()))
                 ApiResult.Ok(req)
+            }
+            is ApiResult.Err -> r
+        }
+    }
+
+    /** Channel3 product search (through our server, so the API key stays off the phone). */
+    suspend fun products(ctx: Context, query: String): ApiResult<List<ShopProduct>> {
+        val q = java.net.URLEncoder.encode(query, "UTF-8")
+        return when (val r = call(ctx, "GET", "/api/products?q=$q")) {
+            is ApiResult.Ok -> {
+                val arr = r.value.optJSONArray("items")
+                ApiResult.Ok((0 until (arr?.length() ?: 0)).mapNotNull { i ->
+                    val p = arr!!.getJSONObject(i)
+                    val o = p.optJSONObject("offer") ?: return@mapNotNull null
+                    ShopProduct(
+                        p.optString("id"), p.optString("title"), p.optString("brand"), p.optString("image"),
+                        o.optDouble("price", 0.0), o.optString("currency", "USD"), o.optString("store"), o.optString("url"),
+                        o.optBoolean("inStock"), p.optInt("offerCount", 1),
+                    )
+                })
             }
             is ApiResult.Err -> r
         }

@@ -130,7 +130,12 @@ class UssdConfirmationActivity : ComponentActivity() {
             "SEND_MONEY" -> TransactionType.SEND_MONEY
             "TILL" -> TransactionType.TILL
             "PAYBILL" -> TransactionType.PAYBILL
+            "BANK_PAYPAL" -> TransactionType.BANK
             else -> return null
+        }
+        if (typeName == "BANK_PAYPAL") {
+            bankDestinationState.value = BankDestination.PAYPAL
+            preferPayPalState.value = true
         }
         val fields = (intent.getSerializableExtra(EXTRA_PAY_FIELDS) as? HashMap<String, String>) ?: return null
         return type to fields
@@ -148,6 +153,7 @@ class UssdConfirmationActivity : ComponentActivity() {
     private val outcomeState = MutableStateFlow<PayOutcome?>(null)
     private val smartState = MutableStateFlow<SmartFill?>(null)
     private val preferPayPalState = MutableStateFlow(false)
+    private val shopQueryState = MutableStateFlow<String?>(null)
 
     private val cameraEditLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -212,6 +218,7 @@ class UssdConfirmationActivity : ComponentActivity() {
             val outcome by outcomeState.collectAsState()
             val smart by smartState.collectAsState()
             val preferPayPal by preferPayPalState.collectAsState()
+            val shopQuery by shopQueryState.collectAsState()
 
             UssdTransactionScreen(
                 type = type,
@@ -249,6 +256,22 @@ class UssdConfirmationActivity : ComponentActivity() {
                 onConfirm = { account -> handlePay(type, data, account) }
             )
 
+            shopQuery?.let { q ->
+                ShopDialog(q, onDismiss = { shopQueryState.value = null }) { action ->
+                    if (action is ShopAction.PayWithPayPal) {
+                        val p = action.product
+                        transactionTypeState.value = TransactionType.BANK
+                        bankDestinationState.value = BankDestination.PAYPAL
+                        transactionDataState.value = transactionDataState.value.toMutableMap().apply {
+                            put("amount", "%.2f".format(java.util.Locale.US, p.price))
+                            put("note", p.title.take(100))
+                        }
+                        preferPayPalState.value = true
+                    }
+                    shopQueryState.value = null
+                }
+            }
+
             outcome?.let { o ->
                 PayOutcomeDialog(
                     outcome = o,
@@ -284,6 +307,7 @@ class UssdConfirmationActivity : ComponentActivity() {
         transactionDataState.value = transactionDataState.value.toMutableMap().apply { putAll(fill.fields) }
         preferPayPalState.value = fill.preferPayPal && MoneyStore.accounts.value.paypal != null
         smartState.value = null
+        fill.shopQuery?.let { shopQueryState.value = it }
     }
 
     private fun sendPayPal(email: String, amount: Double, note: String) {

@@ -228,6 +228,9 @@ dependencies {
     // PayPal hackathon: on-device ML entity extraction (money, email, phone) + Custom Tabs for PayPal's own login
     implementation("com.google.mlkit:entity-extraction:16.0.0-beta5")
     implementation("androidx.browser:browser:1.8.0")
+    // Channel3 product images
+    implementation(libs.coil.compose)
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.4.0")
     implementation("com.google.code.gson:gson:2.10.1")
 
 
