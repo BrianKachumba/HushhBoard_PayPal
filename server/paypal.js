@@ -3,6 +3,7 @@
 // (Vault: createSetupToken / createPaymentToken / deletePaymentToken; Orders: createOrder / captureOrder / getOrder).
 // The client secret lives only here, on the server - never in the app.
 
+export const _fetch = { fn: (...a) => fetch(...a) };
 const BASE = process.env.PAYPAL_API_BASE || 'https://api-m.sandbox.paypal.com';
 const CLIENT_ID = process.env.PAYPAL_CLIENT_ID || '';
 const CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET || '';
@@ -15,7 +16,7 @@ export function configured() {
 
 async function accessToken() {
   if (cached.token && Date.now() < cached.expiresAt - 60_000) return cached.token;
-  const res = await fetch(`${BASE}/v1/oauth2/token`, {
+  const res = await _fetch.fn(`${BASE}/v1/oauth2/token`, {
     method: 'POST',
     headers: {
       Authorization: 'Basic ' + Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64'),
@@ -44,7 +45,7 @@ async function call(method, path, body, { requestId } = {}) {
   const token = await accessToken();
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   if (requestId) headers['PayPal-Request-Id'] = requestId;
-  const res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const res = await _fetch.fn(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   if (res.status === 204) return {};
   const text = await res.text();
   const json = text ? JSON.parse(text) : {};
@@ -70,7 +71,6 @@ export async function createSetupToken({ returnUrl, cancelUrl, requestId }) {
           cancel_url: cancelUrl,
           shipping_preference: 'NO_SHIPPING',
           vault_instruction: 'ON_PAYER_APPROVAL',
-          user_action: 'CONTINUE',
         },
       },
     },
@@ -108,18 +108,27 @@ export async function payWithVault({ vaultId, payeeEmail, amount, currency, note
     description: (note || 'Sent with HushhBoard').slice(0, 127),
   };
   if (payeeEmail) purchaseUnit.payee = { email_address: payeeEmail };
-  let order = await call('POST', '/v2/checkout/orders', {
+  // The user taps Pay each time, so this is a customer-initiated payment with a saved PayPal
+  // (field names checked against the APIMatic PayPal SDK map: PayPalWallet + PayPalWalletStoredCredential).
+  // If PayPal rejects the stored-credential hint for this account type, retry with the vault id alone.
+  const order0 = (withCredential) => call('POST', '/v2/checkout/orders', {
     intent: 'CAPTURE',
     purchase_units: [purchaseUnit],
-    // The user taps Pay each time, so this is a customer-initiated payment with a saved PayPal
-    // (field names checked against the APIMatic PayPal SDK map: PayPalWallet + PayPalWalletStoredCredential).
     payment_source: {
-      paypal: {
-        vault_id: vaultId,
-        stored_credential: { payment_initiator: 'CUSTOMER', usage: 'SUBSEQUENT', usage_pattern: 'IMMEDIATE' },
-      },
+      paypal: withCredential
+        ? { vault_id: vaultId, stored_credential: { payment_initiator: 'CUSTOMER', usage: 'SUBSEQUENT', usage_pattern: 'IMMEDIATE' } }
+        : { vault_id: vaultId },
     },
-  }, { requestId });
+  }, { requestId: withCredential ? requestId : `${requestId}-v` });
+  let order;
+  try {
+    order = await order0(true);
+  } catch (err) {
+    const fieldIssue = err instanceof PayPalError && err.status === 400 &&
+      /MUTUALLY_EXCLUSIVE|INVALID_PARAMETER|stored_credential|NOT_SUPPORTED|UNKNOWN_FIELD/i.test(JSON.stringify(err.body || {}));
+    if (!fieldIssue) throw err;
+    order = await order0(false);
+  }
   if (order.status === 'APPROVED' || order.status === 'CREATED') {
     order = await call('POST', `/v2/checkout/orders/${order.id}/capture`, {}, { requestId: `cap-${order.id}` });
   }

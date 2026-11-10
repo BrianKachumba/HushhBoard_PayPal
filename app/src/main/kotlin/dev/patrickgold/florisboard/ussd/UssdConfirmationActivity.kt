@@ -206,7 +206,7 @@ class UssdConfirmationActivity : ComponentActivity() {
 
         MoneyStore.reload(this)
         lifecycleScope.launch { MoneyApi.syncPayPal(this@UssdConfirmationActivity) }
-        lifecycleScope.launch { MoneyAi.warmUp() }
+        lifecycleScope.launch { runCatching { MoneyAi.warmUp(this@UssdConfirmationActivity) } }
 
         setContent {
             val type by transactionTypeState.collectAsState()
@@ -295,7 +295,7 @@ class UssdConfirmationActivity : ComponentActivity() {
     private fun runSmartFill(text: String?, silent: Boolean = false) {
         val source = text ?: readClipboard()
         lifecycleScope.launch {
-            val fill = MoneyAi.understand(source)
+            val fill = runCatching { MoneyAi.understand(this@UssdConfirmationActivity, source) }.getOrNull()
             if (fill != null) smartState.value = fill
             else if (!silent) Toast.makeText(this@UssdConfirmationActivity, "Copy a payment message first, then tap Smart fill.", Toast.LENGTH_LONG).show()
         }

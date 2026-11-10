@@ -227,6 +227,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // PayPal hackathon: on-device ML entity extraction (money, email, phone) + Custom Tabs for PayPal's own login
     implementation("com.google.mlkit:entity-extraction:16.0.0-beta5")
+    // ML Kit needs WorkManager; the pay screen runs in the ":hushh" process where androidx.startup
+    // doesn't initialise it, so MoneyAi initialises it on demand.
+    implementation("androidx.work:work-runtime:2.9.1")
     implementation("androidx.browser:browser:1.8.0")
     // Channel3 product images
     implementation(libs.coil.compose)

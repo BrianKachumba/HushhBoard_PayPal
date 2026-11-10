@@ -62,16 +62,16 @@ fun TextInputLayout(
             .fillMaxWidth()
             .wrapContentHeight(),
     ) {
+        // 🚀 HUSHHBOARD: Gboard-style quick emoji row in chat apps, on top - then the Smartbar, then the keys.
+        val editorInfo by editorInstance.activeInfoFlow.collectAsState()
+        val emojiRowEnabled by prefs.hushh.emojiRow.collectAsState()
+        if (!state.isActionsOverflowVisible && emojiRowEnabled && EmojiQuickRow.isWanted(prefs, editorInfo, state.keyboardMode)) {
+            EmojiQuickRowView()
+        }
         Smartbar()
         if (state.isActionsOverflowVisible) {
             QuickActionsOverflowPanel()
         } else {
-            // 🚀 HUSHHBOARD: Gboard-style quick emoji row in chat apps.
-            val editorInfo by editorInstance.activeInfoFlow.collectAsState()
-            val emojiRowEnabled by prefs.hushh.emojiRow.collectAsState()
-            if (emojiRowEnabled && EmojiQuickRow.isWanted(prefs, editorInfo, state.keyboardMode)) {
-                EmojiQuickRowView()
-            }
             Box {
                 val incognitoDisplayMode by prefs.keyboard.incognitoDisplayMode.collectAsState()
                 val showIncognitoIcon = evaluator.state.isIncognitoMode &&

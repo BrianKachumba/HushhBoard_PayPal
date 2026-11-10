@@ -60,7 +60,11 @@ fun ShopDialog(query: String, onDismiss: () -> Unit, onAction: (ShopAction) -> U
                 is ApiResult.Err -> Text(s.message)
                 is ApiResult.Ok -> if (s.value.isEmpty()) Text("No products found. Try a shorter name.") else
                     Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Live prices from Channel3 · pay or request with PayPal", fontSize = 11.sp, color = Color.Gray)
+                        Text(
+                            if (hasPayPal) "Live prices from Channel3 · pay or request with PayPal"
+                            else "Live prices from Channel3 · connect PayPal on Home to pay or request",
+                            fontSize = 11.sp, color = Color.Gray,
+                        )
                         s.value.forEach { p ->
                             ProductCard(
                                 p, hasPayPal,

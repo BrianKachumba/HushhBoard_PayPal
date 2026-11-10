@@ -530,7 +530,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val hintedSymbolsEnabled = boolean(
             key = "keyboard__hinted_symbols_enabled",
-            default = true,
+            default = false, // HushhBoard: cleaner keys - number hints on, symbol hints off by default
         )
         val hintedSymbolsMode = enum(
             key = "keyboard__hinted_symbols_mode",

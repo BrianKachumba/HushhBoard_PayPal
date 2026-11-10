@@ -1,5 +1,8 @@
 package dev.patrickgold.florisboard.money
 
+import android.content.Context
+import androidx.work.Configuration
+import androidx.work.WorkManager
 import com.google.mlkit.nl.entityextraction.Entity
 import com.google.mlkit.nl.entityextraction.EntityExtraction
 import com.google.mlkit.nl.entityextraction.EntityExtractionParams
@@ -35,10 +38,28 @@ data class SmartFill(
  * Then it decides intent: who to pay, which rail (PayPal vs M-PESA vs bank) and the amount.
  */
 object MoneyAi {
-    private val extractor by lazy {
-        EntityExtraction.getClient(EntityExtractorOptions.Builder(EntityExtractorOptions.ENGLISH).build())
-    }
+    @Volatile private var extractor: com.google.mlkit.nl.entityextraction.EntityExtractor? = null
     @Volatile private var modelReady = false
+    @Volatile private var mlUnavailable = false
+
+    /**
+     * ML Kit uses WorkManager for its model download. The pay screen lives in the ":hushh" process, where
+     * androidx.startup doesn't run WorkManager's initializer, so initialise it here when needed.
+     * Any ML Kit failure just turns the ML layer off; the Kenyan rules keep working.
+     */
+    private fun client(ctx: Context): com.google.mlkit.nl.entityextraction.EntityExtractor? {
+        if (mlUnavailable) return null
+        extractor?.let { return it }
+        return try {
+            try { WorkManager.getInstance(ctx.applicationContext) } catch (_: IllegalStateException) {
+                WorkManager.initialize(ctx.applicationContext, Configuration.Builder().build())
+            }
+            EntityExtraction.getClient(EntityExtractorOptions.Builder(EntityExtractorOptions.ENGLISH).build()).also { extractor = it }
+        } catch (t: Throwable) {
+            mlUnavailable = true
+            null
+        }
+    }
 
     private suspend fun <T> Task<T>.awaitOrNull(): T? = suspendCancellableCoroutine { cont ->
         addOnSuccessListener { cont.resume(it) }
@@ -47,8 +68,10 @@ object MoneyAi {
     }
 
     /** Start the (small, one-time) model download early so the first Smart fill is instant. */
-    suspend fun warmUp() {
-        if (!modelReady) modelReady = withTimeoutOrNull(20_000) { extractor.downloadModelIfNeeded().awaitOrNull() } != null
+    suspend fun warmUp(ctx: Context) {
+        if (modelReady) return
+        val c = client(ctx) ?: return
+        modelReady = runCatching { withTimeoutOrNull(20_000) { c.downloadModelIfNeeded().awaitOrNull() } != null }.getOrDefault(false)
     }
 
     private data class Found(
@@ -56,12 +79,13 @@ object MoneyAi {
         var phone: String? = null, var iban: String? = null,
     )
 
-    private suspend fun mlKit(text: String): Found? {
-        warmUp()
-        if (!modelReady) return null
-        val annotations = withTimeoutOrNull(5_000) {
-            extractor.annotate(EntityExtractionParams.Builder(text).build()).awaitOrNull()
-        } ?: return null
+    private suspend fun mlKit(ctx: Context, text: String): Found? {
+        warmUp(ctx)
+        val c = client(ctx)
+        if (!modelReady || c == null) return null
+        val annotations = runCatching {
+            withTimeoutOrNull(5_000) { c.annotate(EntityExtractionParams.Builder(text).build()).awaitOrNull() }
+        }.getOrNull() ?: return null
         val f = Found()
         for (a in annotations) for (e in a.entities) when (e.type) {
             Entity.TYPE_MONEY -> if (f.amount == null) {
@@ -99,10 +123,10 @@ object MoneyAi {
 
     private val BANK_ACC = Regex("""(?i)(?:a/?c|acc(?:ount)?(?:\s*(?:no|number))?)\s*[:.#-]?\s*(\d{6,20})""")
 
-    suspend fun understand(text: String): SmartFill? {
+    suspend fun understand(ctx: Context, text: String): SmartFill? {
         val clean = text.take(2_000)
         if (clean.isBlank()) return null
-        val ml = mlKit(clean)
+        val ml = runCatching { mlKit(ctx, clean) }.getOrNull()
         val rules = EntityExtractor.extract(clean)
 
         val usd = USD_RULE.find(clean)

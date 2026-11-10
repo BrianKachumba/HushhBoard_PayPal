@@ -70,8 +70,18 @@ object NlpInlineAutofill {
 
             flogInfo { "showInlineSuggestions: [${sequenceId}] start inflating suggestions" }
             for ((index, rawSuggestion) in rawSuggestions.withIndex()) {
-                rawSuggestion.inflate(context, size, context.mainExecutor) { view ->
-                    suggestionsArray[index] = NlpInlineAutofillSuggestion(rawSuggestion.info, view)
+                // The size must fit the presentation spec the autofill service sent, or inflate() throws.
+                val spec = rawSuggestion.info.inlinePresentationSpec
+                val h = if (size.height <= 0) ViewGroup.LayoutParams.WRAP_CONTENT
+                    else size.height.coerceIn(spec.minSize.height, spec.maxSize.height)
+                val fitted = Size(ViewGroup.LayoutParams.WRAP_CONTENT, h)
+                try {
+                    rawSuggestion.inflate(context, fitted, context.mainExecutor) { view ->
+                        suggestionsArray[index] = NlpInlineAutofillSuggestion(rawSuggestion.info, view)
+                        latch.countDown()
+                    }
+                } catch (e: IllegalArgumentException) {
+                    flogWarning { "showInlineSuggestions: [${sequenceId}] skipped a suggestion: ${e.message}" }
                     latch.countDown()
                 }
             }

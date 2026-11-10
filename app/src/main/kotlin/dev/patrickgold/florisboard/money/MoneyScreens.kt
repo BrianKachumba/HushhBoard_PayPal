@@ -134,7 +134,7 @@ fun MoneyHomeScreen() {
                 }
             }
         }
-        if (accounts.paypal != null) ShopSearchCard { shopQuery = it }
+        ShopSearchCard { shopQuery = it }
         AccountsEditor(accounts)
         if (accounts.paypal != null) {
             SectionTitle("PayPal activity", Icons.Rounded.History)
