@@ -173,17 +173,9 @@ class UssdConfirmationActivity : ComponentActivity() {
             }
         }
 
+    /** Phone permissions are only needed for USSD (Airtel / *334#); the screen itself always opens. */
     private val requestPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-            if (permissions[Manifest.permission.CALL_PHONE] == true &&
-                permissions[Manifest.permission.READ_PHONE_STATE] == true
-            ) {
-                launchUi()
-            } else {
-                Toast.makeText(this, "Permissions required for USSD payments", Toast.LENGTH_LONG).show()
-                finish()
-            }
-        }
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -194,8 +186,8 @@ class UssdConfirmationActivity : ComponentActivity() {
         val hasCall = ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
         val hasState = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
 
-        if (hasCall && hasState) launchUi()
-        else requestPermissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE))
+        launchUi()
+        if (!(hasCall && hasState)) requestPermissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE))
     }
 
     private fun launchUi() {
@@ -359,7 +351,7 @@ class UssdConfirmationActivity : ComponentActivity() {
     /** The original M-PESA / Airtel flow (USSD or STK push). */
     private fun handleLocalPay(type: TransactionType, data: Map<String, String>, account: PayAccount) {
 
-        val sims = SimManager.getActiveSims(this)
+        val sims = runCatching { SimManager.getActiveSims(this) }.getOrDefault(emptyList())
         val sim = sims.find { it.carrierName.contains(account.provider.substringBefore(" "), ignoreCase = true) }
             ?: sims.firstOrNull()
 
