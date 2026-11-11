@@ -1,0 +1,46 @@
+HushhBoard
+Copyright 2026 Brian Kachumba
+
+This product includes software developed by The FlorisBoard Contributors
+(https://github.com/florisboard/florisboard), Copyright (C) 2020-2025 The FlorisBoard
+Contributors, licensed under the Apache License, Version 2.0.
+
+HushhBoard is a modified version of FlorisBoard 0.6.0-alpha02. FlorisBoard source files
+that were changed carry the line "Modified by Brian Kachumba for HushhBoard, 2026" under
+their original copyright header. Files without a FlorisBoard header (for example
+app/src/main/kotlin/dev/patrickgold/florisboard/money/, the ussd/, scanner/ and ears/
+packages, lib/nlp/ and server/) are original work by Brian Kachumba and are also licensed
+under the Apache License, Version 2.0. HushhBoard is not affiliated with or endorsed by
+the FlorisBoard project.
+
+Third-party components
+----------------------
+- APIMatic PayPal Context Plugin skills (tools/context-plugins/paypal/), Copyright (c) 2026-
+  APIMatic, MIT License (see tools/context-plugins/paypal/LICENSE.txt).
+- Dictionary and next-word data: see tools/nlp/DATA_LICENSES.md. Includes Taskmaster-1 and
+  Taskmaster-2 by Google LLC, licensed under CC BY 4.0
+  (https://creativecommons.org/licenses/by/4.0/), converted into word-sequence statistics.
+- Android libraries (AndroidX, Jetpack Compose, OkHttp, Coil, Kotlin) under their own
+  licences, listed in the app under Settings > About > Open-source licences.
+- Google ML Kit Entity Extraction is used under Google's ML Kit terms; it is not covered by
+  this repository's licence.
+- The money server (server/) uses Express (MIT) and talks to the PayPal REST APIs, Channel3
+  and Safaricom Daraja under each provider's own developer terms.
+
+Trademarks
+----------
+The Apache License does not grant permission to use trade names, trademarks, service marks
+or product names (Section 6).
+
+- "HushhBoard" and the HushhBoard icon (the H U / S H grid) are trademarks of Brian
+  Kachumba and are not licensed under the Apache License. Forks must use a different name
+  and icon.
+- The provider logos in app/src/main/res/drawable-nodpi/logo_*.png are trademarks of their
+  owners: PayPal (PayPal, Inc.), M-PESA (Safaricom PLC), Airtel Money (Airtel Africa),
+  T-Kash (Telkom Kenya), Equity Bank, KCB Bank, Co-operative Bank of Kenya, Absa Bank
+  Kenya, NCBA Bank, Stanbic Bank Kenya, Standard Chartered, I&M Bank, Diamond Trust Bank
+  and Family Bank. They are used only to identify each provider to the user, are not
+  licensed under the Apache License, and do not imply endorsement. Anyone reusing this
+  code must replace them with their own images unless they have the owners' permission.
+- "FlorisBoard" is the name of the upstream project and is used here only to describe
+  where the code comes from.

@@ -92,14 +92,17 @@ The CI builds a debug APK on every push to `main` (Actions → latest run → `a
 ```
 
 ### 3. Test (PayPal sandbox)
-1. Install the APK, enable and select HushhBoard, and allow SMS for spending insights.
-2. On **Connect your money**, add a Safaricom number and a bank. Tap **Connect PayPal** and log in with a **sandbox personal account** (developer.paypal.com → Testing Tools → Sandbox Accounts).
-3. In any app, tap **Pay** on the keyboard toolbar, choose **Bank → Send to: PayPal**, enter another sandbox account's email and an amount, pick **PayPal** as the payee, and tap **Pay with PayPal**. You should see **Paid ✓**.
-4. Copy *"send me $15 on paypal to <sandbox email>"* and open Pay. Accept the AI suggestion.
-5. Try PayPal → your own M-PESA number (withdrawal handoff) and PayPal → another bank account ("ready for API").
+1. Install the APK. Setup is three taps: **Turn on** (switch HushhBoard on in Settings), **Choose HushhBoard**, **Allow**.
+2. On **Connect your money**, add a Safaricom number and a bank, then add **PayPal** and log in with a **sandbox personal account** (developer.paypal.com → Testing Tools → Sandbox Accounts).
+3. In any app, tap **Pay** on the keyboard toolbar, choose **Bank → Send to: PayPal**, enter another sandbox account's email and an amount, choose the **PayPal** bar and tap **Pay with PayPal**.
+4. Copy *"send me $15 on paypal to <sandbox email>"* and open Pay: the suggestion fills the form.
+5. Type *"get me the sony wh-1000xm5"* in a chat and tap the shopping suggestion, or tap the bag key: live prices open over the chat.
+6. Try PayPal → your own M-PESA number (withdrawal hand-off; the amount is copied for you) and PayPal → another bank account ("ready for API").
 
 Test logins for judges are in the Devpost submission's testing instructions.
 
-## Built on
+## License, credits and trademarks
 
-HushhBoard is a fork of [FlorisBoard](https://github.com/florisboard/florisboard) (Apache 2.0). Everything in this repository is released under the Apache License 2.0; see `LICENSE`.
+- **Code:** Apache License 2.0 (`LICENSE`). HushhBoard is a modified fork of [FlorisBoard](https://github.com/florisboard/florisboard) 0.6.0-alpha02, Copyright The FlorisBoard Contributors. Changed FlorisBoard files say so in their header; everything new (the `money`, `ussd`, `scanner` and `ears` packages, `lib/nlp`, `server/`) is original HushhBoard work under the same licence. HushhBoard is not affiliated with or endorsed by the FlorisBoard project.
+- **Third-party parts:** APIMatic PayPal skills (MIT, `tools/context-plugins/paypal/`), dictionary and language data (`tools/nlp/DATA_LICENSES.md`, including Google's Taskmaster under CC BY 4.0), Android libraries listed in the app's open-source licences screen. Details in `NOTICE`.
+- **Trademarks:** the HushhBoard name and icon are not licensed for reuse. PayPal, M-PESA, Airtel Money, T-Kash and the bank logos in `app/src/main/res/drawable-nodpi/` belong to their owners, are used only to identify each provider, and are not covered by the code licence.

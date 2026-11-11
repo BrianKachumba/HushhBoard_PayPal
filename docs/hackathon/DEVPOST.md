@@ -17,8 +17,18 @@ Kenya leads the world in mobile money: 54 million active mobile-money accounts a
   - PayPal → PayPal: a real payment through PayPal Orders v2 with the saved Vault token.
   - PayPal → your own M-PESA or bank, or M-PESA → PayPal top-up: a one-tap handoff to the official M-PESA or PayPal app, where the PIN stays.
   - PayPal → someone else's M-PESA or bank: built and shown as "ready, waiting for the partner API". We don't fake money moving.
-- **Shop abroad with PayPal.** *"Can you get me the Sony WH-1000XM5?"* → Channel3 finds it across 25,000+ stores with live prices → one tap prepares a PayPal payment for that exact amount, or a PayPal request so friends can chip in.
+- **One bar per account, with a primary.** Each provider (M-PESA, Airtel, each bank, PayPal) is one bar with its logo. Tap it to pay from its primary account, or open the bar's dropdown to use another account for this payment only. PayPal is only listed where it actually works (never Till or Paybill, and on Phone only for M-PESA numbers).
+- **Shop from any chat.** Tap the bag key on the keyboard (or the suggestion that appears when you type *"get me the Sony WH-1000XM5"*). A sheet opens over the app you're in: Channel3 finds the product across 25,000+ stores with live prices. Pay with PayPal, drop a PayPal request into the chat so friends can chip in, share the deal, or open the store, without leaving the chat.
 - **Get paid from abroad.** "Request via PayPal" creates a pay link for any chat. When the client pays, HushhBoard shows Paid ✓.
+
+## Built during the hackathon (1 Oct to 12 Nov 2026)
+HushhBoard started as our own Android keyboard (a fork of the open-source FlorisBoard, Apache 2.0) with M-PESA USSD and STK payments from the toolbar. During the submission period we built:
+- The whole PayPal layer: Vault v3 connect with no stored passwords, Orders v2 payments from the saved PayPal, PayPal pay-link requests with capture, and the stateless Render server with sealed device-bound links (`server/`).
+- The `money` module: accounts store with a primary account per provider, PayRouter (withdrawal, credit or payment; real payment, hand-off or "ready for API"), on-device AI fill, hand-off logging.
+- A new Pay screen (one bar per provider with real logos and a dropdown, PayPal only where supported, steady number pad, silent fresh-only smart fill) and a shared Add account sheet.
+- Channel3 Shop: a product-search sheet that opens over any app from a keyboard key or a typed shopping phrase.
+- A new one-tap setup, a new Home (Wallet), and new Eye/Ears toolbar keys.
+- APIMatic-checked PayPal request shapes, CI for the app, the money tests and the server.
 
 ## How we built it
 - Android (Kotlin, Jetpack Compose) on our FlorisBoard-based keyboard. The Pay screen and a new `money` module hold the accounts store, the PayRouter, the AI layer, and the setup and Home screens.
@@ -48,11 +58,15 @@ Partner access: PayPal payouts to M-PESA, Safaricom Daraja and M-PESA Global, an
 kotlin, jetpack-compose, android, paypal-rest-api, paypal-vault, paypal-orders-v2, ml-kit, channel3, apimatic, node.js, express, render, github-actions
 
 ## Testing instructions (for judges)
-1. Install the APK from the repository's latest GitHub Actions run (artifact `app-debug.apk`) or from the release link.
-2. Enable and select HushhBoard, and allow SMS.
-3. On "Connect your money": add a Safaricom number such as 0712345678, add a bank, then tap Connect PayPal and log in with this sandbox **personal** account:
+1. Install the APK from the release link (or the latest GitHub Actions run, artifact `app-debug.apk`).
+2. Setup: tap **Turn on** and switch HushhBoard on, tap **Choose HushhBoard**, tap **Allow**.
+3. **Connect your money**: add a Safaricom number such as 0712345678 and a bank, then add PayPal and log in with this sandbox **personal** account:
    `EMAIL: <add sandbox personal email>` / `PASSWORD: <add sandbox password>`
-4. Open any app with a text field, tap **Pay** on the keyboard toolbar → Bank → Send to: PayPal → enter `<add second sandbox email>` and 5 → pick PayPal → Pay with PayPal → **Paid ✓**.
-5. Copy: `send me $12 on paypal to <second sandbox email> for the logo` → open Pay → tap **Fill** on the AI banner.
-6. Copy: `can you get me the sony wh-1000xm5?` → open Pay → Fill → pick a product → Pay (or Request).
-7. Home → Request via PayPal → share the link → pay it with the second sandbox account → Home shows **Paid ✓**.
+   The server is on a free plan: the first request after a quiet spell can take up to a minute.
+4. In any app with a text field, tap **Pay** on the keyboard toolbar → **Bank** → Send to: **PayPal** → enter `<add second sandbox email>` and 5 → choose the **PayPal** bar → **Pay with PayPal** → confirm → paid.
+5. Copy `send me $12 on paypal to <second sandbox email> for the logo`, then open Pay and tap the suggestion at the top.
+6. In a chat, type `can you get me the sony wh-1000xm5` and tap the shopping suggestion (or tap the bag key on the toolbar) → pick a product → **Pay** or **Request** (the PayPal link lands in the chat).
+7. Wallet → **Request** → share the link → pay it with the second sandbox account → Wallet shows it as paid.
+
+## License
+Apache License 2.0 (see `LICENSE` and `NOTICE`). HushhBoard is a modified fork of FlorisBoard; third-party logos are trademarks of their owners and are not covered by the licence.
