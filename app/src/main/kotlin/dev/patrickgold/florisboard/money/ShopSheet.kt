@@ -40,7 +40,13 @@ sealed class ShopAction {
  * a PayPal payment, a PayPal request ("chip in for this"), or opens the store. Nothing is paid without a tap.
  */
 @Composable
-fun ShopDialog(query: String, onDismiss: () -> Unit, onAction: (ShopAction) -> Unit) {
+fun ShopDialog(
+    query: String,
+    onDismiss: () -> Unit,
+    /** Where a ready PayPal request goes; default = Android share sheet. */
+    onRequestReady: ((String) -> Unit)? = null,
+    onAction: (ShopAction) -> Unit,
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var state by remember(query) { mutableStateOf<ApiResult<List<ShopProduct>>?>(null) }
@@ -69,7 +75,7 @@ fun ShopDialog(query: String, onDismiss: () -> Unit, onAction: (ShopAction) -> U
                             ProductCard(
                                 p, hasPayPal,
                                 onPay = { onAction(ShopAction.PayWithPayPal(p)) },
-                                onRequest = { scope.launch { requestFor(ctx, p) } },
+                                onRequest = { scope.launch { requestFor(ctx, p, onRequestReady) } },
                                 onOpen = { openStore(ctx, p) },
                             )
                         }
@@ -123,9 +129,9 @@ private fun openStore(ctx: Context, p: ShopProduct) {
 }
 
 /** "Chip in for this": a PayPal request for the product's price, shared to any chat. */
-private suspend fun requestFor(ctx: Context, p: ShopProduct) {
+private suspend fun requestFor(ctx: Context, p: ShopProduct, onReady: ((String) -> Unit)?) {
     when (val r = MoneyApi.request(ctx, p.price, p.currency, p.title.take(90), "")) {
-        is ApiResult.Ok -> ctx.startActivity(
+        is ApiResult.Ok -> if (onReady != null) onReady(r.value.shareText + "\n" + p.url) else ctx.startActivity(
             Intent.createChooser(
                 Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, r.value.shareText + "\n" + p.url),
                 "Send PayPal request",

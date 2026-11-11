@@ -344,6 +344,8 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
                 editorInstance.commitText(candidate.code)
                 nlpManager.onCodeUsed(candidate)
             }
+            is dev.patrickgold.florisboard.ime.nlp.hushh.HushhShopCandidate ->
+                dev.patrickgold.florisboard.ime.nlp.hushh.HushhShopCandidate.open(appContext, candidate.query)
             else -> editorInstance.commitCompletion(candidate)
         }
     }

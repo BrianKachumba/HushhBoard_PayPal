@@ -16,6 +16,14 @@
 
 package dev.patrickgold.florisboard.ime.smartbar
 
+import androidx.compose.runtime.LaunchedEffect
+
+import androidx.compose.foundation.rememberScrollState
+
+import androidx.compose.foundation.horizontalScroll
+
+import androidx.compose.foundation.layout.BoxWithConstraints
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.padding
@@ -77,39 +85,21 @@ fun CandidatesRow(modifier: Modifier = Modifier) {
     val displayMode by prefs.suggestion.displayMode.collectAsState()
     val candidates by nlpManager.activeCandidatesFlow.collectAsState()
 
-    SnyggRow(
-        elementName = FlorisImeUi.SmartbarCandidatesRow.elementName,
-        modifier = modifier
-            .fillMaxSize()
-            .conditional(displayMode == CandidatesDisplayMode.DYNAMIC_SCROLLABLE && candidates.size > 1) {
-                florisHorizontalScroll(scrollbarHeight = CandidatesRowScrollbarHeight)
-            },
-        horizontalArrangement = if (candidates.size > 1) {
-            Arrangement.Start
-        } else {
-            Arrangement.Center
-        },
-    ) {
-        if (candidates.isNotEmpty()) {
-            val candidateModifier = if (candidates.size == 1) {
-                Modifier
-                    .fillMaxHeight()
-                    .weight(1f, fill = false)
-            } else {
-                Modifier
-                    .fillMaxHeight()
-                    .conditional(displayMode == CandidatesDisplayMode.CLASSIC) {
-                        weight(1f)
-                    }
-                    .conditional(displayMode != CandidatesDisplayMode.CLASSIC) {
-                        wrapContentWidth().widthIn(max = 160.dp)
-                    }
-            }
-            val list = when (displayMode) {
-                CandidatesDisplayMode.CLASSIC -> candidates.subList(0, 3.coerceAtMost(candidates.size))
-                else -> candidates
-            }
-            for ((n, candidate) in list.withIndex()) {
+    // 🚀 HUSHHBOARD: exactly 3 suggestions in view, each a third of the bar; the rest are a swipe away
+    // (scroll left/right). Nothing is dropped - the top 3 just come first.
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val slot = maxWidth / 3
+        val scroll = rememberScrollState()
+        LaunchedEffect(candidates) { scroll.scrollTo(0) }
+        val scrollable = candidates.size > 3
+        SnyggRow(
+            elementName = FlorisImeUi.SmartbarCandidatesRow.elementName,
+            modifier = Modifier
+                .fillMaxSize()
+                .conditional(scrollable) { horizontalScroll(scroll) },
+            horizontalArrangement = if (candidates.size > 1) Arrangement.Start else Arrangement.Center,
+        ) {
+            for ((n, candidate) in candidates.withIndex()) {
                 if (n > 0) {
                     SnyggSpacer(
                         elementName = FlorisImeUi.SmartbarCandidateSpacer.elementName,
@@ -119,10 +109,15 @@ fun CandidatesRow(modifier: Modifier = Modifier) {
                             .align(Alignment.CenterVertically),
                     )
                 }
+                val candidateModifier = when {
+                    candidates.size == 1 -> Modifier.fillMaxHeight().weight(1f, fill = false)
+                    !scrollable -> Modifier.fillMaxHeight().weight(1f)
+                    else -> Modifier.fillMaxHeight().width(slot - 1.dp)
+                }
                 CandidateItem(
                     modifier = candidateModifier,
                     candidate = candidate,
-                    displayMode = displayMode,
+                    displayMode = CandidatesDisplayMode.CLASSIC,
                     onClick = {
                         // Can't use candidate directly
                         keyboardManager.commitSuggestionFromBar(candidates[n])

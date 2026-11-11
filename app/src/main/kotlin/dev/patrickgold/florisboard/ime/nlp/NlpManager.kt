@@ -327,6 +327,11 @@ class NlpManager(context: Context) {
         hushhLanguageProvider.takeIf { subtypeManager.activeSubtype.nlpProviders.suggestion == LatinLanguageProvider.ProviderId }
 
     fun removeSuggestion(subtype: Subtype, candidate: SuggestionCandidate): Boolean {
+        if (candidate is dev.patrickgold.florisboard.ime.nlp.hushh.HushhShopCandidate) {
+            dev.patrickgold.florisboard.ime.nlp.hushh.HushhShopCandidate.dismiss(candidate.query)
+            scope.launch { assembleCandidates() }
+            return true
+        }
         if (candidate is HushhCodeCandidate) {
             if (candidate.source == HushhCodeCandidate.Source.SMS) smsCodes.consume(null)
             else runBlocking { clipboardSuggestionProvider.removeSuggestion(subtype, candidate) }
@@ -386,8 +391,12 @@ class NlpManager(context: Context) {
             val withCode = smsCodeCandidate()?.let { code ->
                 listOf(code) + candidates.filterNot { it is HushhCodeCandidate && it.code == code.code }
             } ?: candidates
-            activeCandidates = withCode
-            autoExpandCollapseSmartbarActions(withCode, NlpInlineAutofill.suggestions.value)
+            // 🚀 HUSHHBOARD: shopping intent in the sentence being typed -> Channel3 + PayPal chip first.
+            val shop = if (keyboardManager.activeState.isIncognitoMode) null
+                else runCatching { dev.patrickgold.florisboard.ime.nlp.hushh.HushhShopCandidate.from(editorInstance.activeContent.textBeforeSelection) }.getOrNull()
+            val withShop = if (shop != null) listOf(shop) + withCode else withCode
+            activeCandidates = withShop
+            autoExpandCollapseSmartbarActions(withShop, NlpInlineAutofill.suggestions.value)
         }
     }
 

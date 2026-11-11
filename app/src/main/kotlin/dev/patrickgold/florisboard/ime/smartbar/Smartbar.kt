@@ -209,14 +209,15 @@ private fun SmartbarMainRow(modifier: Modifier = Modifier) {
             .height(FlorisImeSizing.smartbarHeight),
     )
     {
+        // 🚀 HUSHHBOARD: eye (left) and ears (right) - swipe up/down to switch mode, tap to launch.
         if (!flipToggles) {
-            HushCameraAction()
+            HushEyeSwitch()
             CenterContent()
-            HushAudioToggle()
+            HushEarsSwitch()
         } else {
-            HushAudioToggle()
+            HushEarsSwitch()
             CenterContent()
-            HushCameraAction()
+            HushEyeSwitch()
         }
     }
 }

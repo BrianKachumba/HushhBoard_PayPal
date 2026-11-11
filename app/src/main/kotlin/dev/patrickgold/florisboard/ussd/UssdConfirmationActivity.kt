@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
@@ -26,6 +27,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -121,6 +123,8 @@ class UssdConfirmationActivity : ComponentActivity() {
         /** Already-parsed payment from the scanner (e.g. a KE-QR code): type name + field map. */
         const val EXTRA_PAY_TYPE = "PAY_TYPE"
         const val EXTRA_PAY_FIELDS = "PAY_FIELDS"
+        /** Open with Channel3 results for this product (from the keyboard's shopping chip). */
+        const val EXTRA_SHOP_QUERY = "SHOP_QUERY"
     }
 
     @Suppress("UNCHECKED_CAST", "DEPRECATION")
@@ -229,9 +233,9 @@ class UssdConfirmationActivity : ComponentActivity() {
                 smart = smart,
                 preferPayPal = preferPayPal,
                 onDestinationChange = { bankDestinationState.value = it },
-                onSmartFill = { runSmartFill(it) },
-                onApplySmart = { applySmart(it) },
-                onDismissSmart = { smartState.value = null },
+                onSmartFill = { },
+                onApplySmart = { markClipOffered(); applySmart(it) },
+                onDismissSmart = { markClipOffered(); smartState.value = null },
                 onConnectPayPal = {
                     lifecycleScope.launch {
                         PayPalConnect.start(this@UssdConfirmationActivity)?.let {
@@ -257,7 +261,12 @@ class UssdConfirmationActivity : ComponentActivity() {
             )
 
             shopQuery?.let { q ->
-                ShopDialog(q, onDismiss = { shopQueryState.value = null }) { action ->
+                ShopDialog(q, onDismiss = { shopQueryState.value = null }, onRequestReady = { text ->
+                    // Drop the PayPal request straight into the chat the user came from.
+                    dev.patrickgold.florisboard.scanner.HushhInsert.send(this@UssdConfirmationActivity, text)
+                    Toast.makeText(this@UssdConfirmationActivity, "PayPal request added to your chat", Toast.LENGTH_SHORT).show()
+                    finish()
+                }) { action ->
                     if (action is ShopAction.PayWithPayPal) {
                         val p = action.product
                         transactionTypeState.value = TransactionType.BANK
@@ -284,20 +293,37 @@ class UssdConfirmationActivity : ComponentActivity() {
         }
 
         // Look at what the user just copied (e.g. a chat message) and offer an AI fill.
-        window.decorView.postDelayed({ runSmartFill(readClipboard(), silent = true) }, 350)
+        // Launched from the keyboard's shopping chip: go straight to live prices.
+        intent.getStringExtra(EXTRA_SHOP_QUERY)?.takeIf { it.isNotBlank() }?.let { shopQueryState.value = it }
+            // Otherwise, silently look at a message the user *just* copied (never an old one).
+            ?: window.decorView.postDelayed({ freshClip()?.let { runSmartFill(it) } }, 350)
     }
 
-    private fun readClipboard(): String = runCatching {
+    /** A clip copied in the last 3 minutes that we haven't offered before - or nothing. */
+    private var offeredClipKey: String? = null
+    private fun freshClip(): String? = runCatching {
         val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
-    }.getOrDefault("")
+        val desc = cm.primaryClipDescription ?: return null
+        val ts = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) desc.timestamp else 0L
+        if (ts == 0L || System.currentTimeMillis() - ts > 3 * 60_000) return null
+        val text = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+        if (text.isBlank()) return null
+        val key = "$ts:${text.hashCode()}"
+        val seen = getSharedPreferences("hushh_smartfill", MODE_PRIVATE)
+        if (seen.getString("offered", null) == key) return null
+        offeredClipKey = key
+        text
+    }.getOrNull()
 
-    private fun runSmartFill(text: String?, silent: Boolean = false) {
-        val source = text ?: readClipboard()
+    /** Remember the clip so it is never offered again (after it was used or dismissed). */
+    private fun markClipOffered() {
+        offeredClipKey?.let { getSharedPreferences("hushh_smartfill", MODE_PRIVATE).edit().putString("offered", it).apply() }
+    }
+
+    private fun runSmartFill(text: String) {
         lifecycleScope.launch {
-            val fill = runCatching { MoneyAi.understand(this@UssdConfirmationActivity, source) }.getOrNull()
+            val fill = runCatching { MoneyAi.understand(this@UssdConfirmationActivity, text) }.getOrNull()
             if (fill != null) smartState.value = fill
-            else if (!silent) Toast.makeText(this@UssdConfirmationActivity, "Copy a payment message first, then tap Smart fill.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -454,6 +480,7 @@ private val KeyPressed = Color(0xFFC8CACE)
 private val PayPalBlue = Color(0xFF0070E0)
 private val AmberText = Color(0xFFB26A00)
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun UssdTransactionScreen(
     type: TransactionType,
@@ -512,16 +539,22 @@ fun UssdTransactionScreen(
     val flow = if (canPay) PayRouter.flowFor(selected!!.kind, type.toTab(), data, destination, money) else null
     val padOpen = active?.numeric == true
 
-    // Numeric field active -> hide the system keyboard. Text field active -> focus it so the system keyboard shows.
+    // One keyboard at a time: our number pad for numbers, the system keyboard for text - never both.
+    val imeVisible = WindowInsets.isImeVisible
     LaunchedEffect(active) {
         val a = active ?: return@LaunchedEffect
         if (a.numeric) {
-            focusManager.clearFocus()
+            focusManager.clearFocus(force = true)
             keyboardController?.hide()
+            (view.context as? android.app.Activity)?.window?.let { w ->
+                androidx.core.view.WindowCompat.getInsetsController(w, view).hide(androidx.core.view.WindowInsetsCompat.Type.ime())
+            }
         } else {
             runCatching { textRequesters[a]?.requestFocus() }
         }
     }
+    // The system keyboard opened (a text field got focus) -> the pad must not be the active input.
+    LaunchedEffect(imeVisible) { if (imeVisible && active?.numeric == true) active = null }
 
     BackHandler(enabled = padOpen) { active = null }
 
@@ -569,15 +602,6 @@ fun UssdTransactionScreen(
                 Icon(Icons.Rounded.ArrowBackIosNew, "Back", tint = TextMain, modifier = Modifier.size(14.dp))
             }
             Text("Make a Transaction", color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            Row(
-                Modifier.clip(RoundedCornerShape(14.dp)).background(Brand.copy(alpha = 0.12f))
-                    .clickable { onSmartFill(null) }.padding(horizontal = 10.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Rounded.AutoAwesome, null, tint = Brand, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Smart fill", color = Brand, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            }
         }
 
         // AI suggestion from the copied chat message
@@ -601,12 +625,14 @@ fun UssdTransactionScreen(
                 Text(currencyLabel, color = if (payingWithPayPal) PayPalBlue else TextMain, fontSize = 22.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.width(8.dp))
                 val amt = data["amount"] ?: ""
+                // Cursor sits where the next digit goes: before the grey "0" when empty, after the digits otherwise.
+                if (active == Field.AMOUNT && amt.isEmpty()) BlinkingCursor(42.dp, amt)
                 Text(
                     if (amt.isEmpty()) "0" else amt,
                     fontSize = 48.sp, fontWeight = FontWeight.Bold,
                     color = if (amt.isEmpty()) Color(0xFFCCCCCC) else TextMain
                 )
-                if (active == Field.AMOUNT) BlinkingCursor(40.dp)
+                if (active == Field.AMOUNT && amt.isNotEmpty()) BlinkingCursor(42.dp, amt)
             }
             val usd = data["amount"]?.toDoubleOrNull()
             if (payingWithPayPal && usd != null && usd > 0) {
@@ -685,7 +711,7 @@ fun UssdTransactionScreen(
                     )
                 }
                 accounts.forEachIndexed { i, acc ->
-                    if (i > 0) HorizontalDivider(color = Divider, modifier = Modifier.padding(start = 44.dp))
+                    if (i > 0) HorizontalDivider(color = Divider, modifier = Modifier.padding(start = 58.dp))
                     PayeeRow(acc, acc.id == selectedId) {
                         selectedId = acc.id
                         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -716,7 +742,7 @@ fun UssdTransactionScreen(
         }
 
         // Confirm and Pay (the pad's big key takes over while the pad is open)
-        if (!padOpen) {
+        if (!padOpen || imeVisible) {
             Button(
                 onClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
@@ -744,7 +770,7 @@ fun UssdTransactionScreen(
 
         // In-page number pad (only exists on this screen)
         AnimatedVisibility(
-            visible = padOpen,
+            visible = padOpen && !imeVisible,
             enter = slideInVertically { it },
             exit = slideOutVertically { it }
         ) {
@@ -873,15 +899,16 @@ private fun KeyBox(
     )
 }
 
+/** A text-editor style caret: solid while typing, then a crisp on/off blink (no fading). */
 @Composable
-private fun BlinkingCursor(height: Dp) {
-    val transition = rememberInfiniteTransition(label = "cursor")
-    val alpha by transition.animateFloat(
-        initialValue = 1f, targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(500), RepeatMode.Reverse),
-        label = "cursorAlpha"
-    )
-    Box(Modifier.padding(start = 2.dp).width(2.dp).height(height).background(Brand.copy(alpha = alpha)))
+private fun BlinkingCursor(height: Dp, value: String = "") {
+    var visible by remember { mutableStateOf(true) }
+    LaunchedEffect(value) {
+        visible = true
+        delay(600)
+        while (true) { visible = !visible; delay(530) }
+    }
+    Box(Modifier.padding(horizontal = 2.dp).width(2.dp).height(height).background(if (visible) Brand else Color.Transparent))
 }
 
 @Composable
@@ -927,10 +954,10 @@ private fun NumericFieldRow(
     ) {
         Text(label, color = if (isActive) Brand else TextMuted, fontSize = 12.sp, modifier = Modifier.width(104.dp))
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            if (isActive && value.isEmpty()) BlinkingCursor(16.dp)
+            if (isActive && value.isEmpty()) BlinkingCursor(16.dp, value)
             if (value.isEmpty()) Text(placeholder, color = Color(0xFFBBBBBB), fontSize = 14.sp)
             else Text(value, color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            if (isActive && value.isNotEmpty()) BlinkingCursor(16.dp)
+            if (isActive && value.isNotEmpty()) BlinkingCursor(16.dp, value)
         }
         if (onScan != null) {
             IconButton(onClick = onScan, modifier = Modifier.size(32.dp)) {
@@ -970,24 +997,56 @@ private fun TextFieldRow(
     }
 }
 
+/** Brand colour + monogram for each provider, so accounts are recognised at a glance. */
+private fun providerBadge(acc: PayAccount): Pair<Color, String> {
+    val p = acc.provider.lowercase()
+    return when {
+        acc.kind == SourceKind.PAYPAL -> PayPalBlue to "P"
+        acc.kind == SourceKind.MPESA -> Color(0xFF3AA935) to "M"
+        acc.kind == SourceKind.AIRTEL -> Color(0xFFE40000) to "A"
+        p.startsWith("equity") -> Color(0xFFA32A29) to "E"
+        p.startsWith("kcb") -> Color(0xFF1B8F3A) to "K"
+        p.startsWith("co-op") || p.startsWith("coop") -> Color(0xFF1D6E3F) to "C"
+        p.startsWith("absa") -> Color(0xFFDC0032) to "A"
+        p.startsWith("ncba") -> Color(0xFF1E3A8A) to "N"
+        p.startsWith("stanbic") -> Color(0xFF0033A1) to "S"
+        p.startsWith("standard") -> Color(0xFF0072AA) to "SC"
+        p.startsWith("i&m") -> Color(0xFFB8860B) to "I&M"
+        p.startsWith("diamond") || p.startsWith("dtb") -> Color(0xFF00529B) to "D"
+        p.startsWith("family") -> Color(0xFF6A1B9A) to "F"
+        else -> Color(0xFF607D8B) to acc.provider.take(1).uppercase()
+    }
+}
+
+@Composable
+private fun ProviderBadge(acc: PayAccount, selected: Boolean) {
+    val (color, mono) = providerBadge(acc)
+    Box(
+        Modifier.size(30.dp).clip(CircleShape).background(color)
+            .border(if (selected) 2.dp else 0.dp, if (selected) Color.White else Color.Transparent, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(mono, color = Color.White, fontSize = if (mono.length > 1) 9.sp else 13.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
 @Composable
 private fun PayeeRow(acc: PayAccount, selected: Boolean, onSelect: () -> Unit) {
+    val (color, _) = providerBadge(acc)
     Row(
-        Modifier.fillMaxWidth().height(30.dp).clickable(onClick = onSelect).padding(horizontal = 16.dp),
+        Modifier.fillMaxWidth().height(48.dp)
+            .background(if (selected) color.copy(alpha = 0.08f) else Color.Transparent)
+            .clickable(onClick = onSelect).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Small custom checkbox (the Material one forces a 48dp tall row)
-        Box(
-            Modifier.size(16.dp).clip(RoundedCornerShape(4.dp))
-                .background(if (selected) Brand else Color.Transparent)
-                .border(1.5.dp, if (selected) Brand else Color(0xFFBBBBBB), RoundedCornerShape(4.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            if (selected) Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(12.dp))
-        }
+        ProviderBadge(acc, selected)
         Spacer(Modifier.width(12.dp))
-        Text(acc.provider, color = TextMain, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-        Text(acc.number, color = TextMuted, fontSize = 12.sp)
+        Column(Modifier.weight(1f)) {
+            Text(acc.provider, color = TextMain, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+            Text(acc.number, color = TextMuted, fontSize = 12.sp, maxLines = 1)
+        }
+        if (selected) Icon(Icons.Rounded.CheckCircle, "Selected", tint = color, modifier = Modifier.size(20.dp))
+        else Box(Modifier.size(20.dp).border(1.5.dp, Color(0xFFCCCCCC), CircleShape))
     }
 }
 
@@ -1017,22 +1076,20 @@ private fun AddPayeeDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Uni
 
 @Composable
 private fun SmartBanner(fill: SmartFill, onApply: () -> Unit, onDismiss: () -> Unit) {
+    // Slim, quiet suggestion from a message copied moments ago. Tap to fill, x to ignore.
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(10.dp)).background(Color.White)
-            .border(1.dp, Brand.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-            .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(20.dp)).background(Brand.copy(alpha = 0.08f))
+            .clickable(onClick = onApply)
+            .padding(start = 12.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Rounded.AutoAwesome, null, tint = Brand, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(fill.summary, color = TextMain, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text("From your copied message · ${fill.engine}", color = TextMuted, fontSize = 10.sp)
-        }
-        TextButton(onClick = onApply) { Text("Fill", color = Brand, fontWeight = FontWeight.Bold) }
-        IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-            Icon(Icons.Rounded.Close, "Dismiss", tint = TextMuted, modifier = Modifier.size(16.dp))
+        Icon(Icons.Rounded.ContentPaste, null, tint = Brand, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(fill.summary, color = TextMain, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Rounded.Close, "Ignore", tint = TextMuted, modifier = Modifier.size(14.dp))
         }
     }
 }
