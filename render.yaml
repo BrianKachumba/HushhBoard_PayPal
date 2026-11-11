@@ -2,7 +2,7 @@
 # In Render: New > Blueprint > pick this repo, then paste the PayPal sandbox Client ID and Secret.
 services:
   - type: web
-    name: hushhboard-paypal
+    name: hushhboard-money
     runtime: node
     rootDir: server
     plan: free

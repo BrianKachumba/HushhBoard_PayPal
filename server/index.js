@@ -59,7 +59,7 @@ function parseMoney(body, res) {
 }
 
 function fail(res, err) {
-  const status = err instanceof paypal.PayPalError ? (err.status >= 500 ? 502 : 422) : 500;
+  const status = err instanceof paypal.PayPalError ? (err.issue === 'PAYPAL_RELINK' ? 409 : err.status >= 500 ? 502 : 422) : 500;
   console.error('[paypal]', err.message);
   res.status(status).json({ error: err.issue || 'SERVER_ERROR', message: err.message });
 }
@@ -68,7 +68,8 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 const page = (title, message, { href, label, autoOpen, ok = true } = {}) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title>
+<meta name="robots" content="noindex,nofollow">
+<title>HushhBoard · ${esc(title)}</title>
 <style>
  body{font-family:system-ui,-apple-system,Roboto,sans-serif;background:#0A0A0A;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
  .card{max-width:420px;padding:32px 24px;text-align:center}
@@ -91,8 +92,8 @@ app.post('/api/paypal/connect', async (req, res) => {
   try {
     const state = seal({ d: deviceHash(dev), t: Date.now(), r: crypto.randomUUID() });
     const setup = await paypal.createSetupToken({
-      returnUrl: `${PUBLIC_URL}/paypal/connected?state=${state}`,
-      cancelUrl: `${PUBLIC_URL}/paypal/cancelled`,
+      returnUrl: `${PUBLIC_URL}/link/done?state=${state}`,
+      cancelUrl: `${PUBLIC_URL}/link/cancel`,
       requestId: crypto.randomUUID(),
     });
     pendingSetups.set(state, setup.id);
@@ -101,7 +102,7 @@ app.post('/api/paypal/connect', async (req, res) => {
   } catch (err) { fail(res, err); }
 });
 
-app.get('/paypal/connected', async (req, res) => {
+app.get(['/link/done', '/paypal/connected'], async (req, res) => {
   const stateRaw = String(req.query.state || '');
   const state = open(stateRaw);
   const setupTokenId = String(req.query.approval_token_id || req.query.approval_session_id || req.query.token || pendingSetups.get(stateRaw) || '');
@@ -114,15 +115,15 @@ app.get('/paypal/connected', async (req, res) => {
     pendingSetups.delete(stateRaw);
     const sealed = seal({ v: pt.id, e: pt.email, n: pt.name, d: state.d });
     const href = `${APP_LINK}?result=connected&email=${encodeURIComponent(pt.email)}&name=${encodeURIComponent(pt.name)}&link=${sealed}`;
-    res.send(page('PayPal connected', `${pt.email || 'Your PayPal'} is now linked to HushhBoard. You won't need to log in again to pay.`, { href, label: 'Back to HushhBoard', autoOpen: true }));
+    res.send(page('Linked', `${pt.email || 'Your account'} is linked. Taking you back to HushhBoard.`, { href, label: 'Back to HushhBoard', autoOpen: true }));
   } catch (err) {
     console.error('[connect]', err.message);
-    res.status(502).send(page('Could not connect', 'PayPal did not confirm the link. Please try again from HushhBoard.', back));
+    res.status(502).send(page('Not linked', 'The link was not confirmed. Please try again from HushhBoard.', back));
   }
 });
 
-app.get('/paypal/cancelled', (_req, res) =>
-  res.send(page('Not connected', 'You cancelled on PayPal. Nothing was linked.', { href: `${APP_LINK}?result=cancelled`, label: 'Back to HushhBoard', autoOpen: true, ok: false })));
+app.get(['/link/cancel', '/paypal/cancelled'], (_req, res) =>
+  res.send(page('Not linked', 'You cancelled. Nothing was linked.', { href: `${APP_LINK}?result=cancelled`, label: 'Back to HushhBoard', autoOpen: true, ok: false })));
 
 app.get('/api/paypal/status', (req, res) => {
   const dev = device(req, res); if (!dev) return;
@@ -164,7 +165,7 @@ app.post('/api/paypal/request', async (req, res) => {
   try {
     const result = await paypal.createPaymentRequest({
       payeeEmail: pp.e, amount: m.amount, currency: m.currency, note: req.body.note,
-      returnUrl: `${PUBLIC_URL}/paypal/paid`, cancelUrl: `${PUBLIC_URL}/paypal/declined`, requestId: crypto.randomUUID(),
+      returnUrl: `${PUBLIC_URL}/pay/done`, cancelUrl: `${PUBLIC_URL}/pay/cancel`, requestId: crypto.randomUUID(),
     });
     res.json({
       id: result.id, approveUrl: result.approveUrl,
@@ -174,19 +175,19 @@ app.post('/api/paypal/request', async (req, res) => {
 });
 
 // The payer (anywhere in the world) lands here after approving on PayPal.
-app.get('/paypal/paid', async (req, res) => {
+app.get(['/pay/done', '/paypal/paid'], async (req, res) => {
   const orderId = String(req.query.token || '');
   if (!/^[A-Z0-9]{10,30}$/.test(orderId)) return res.status(400).send(page('Unknown payment', 'This payment link is not valid.', { ok: false }));
   try {
     const r = await paypal.captureOrder(orderId);
-    res.send(page('Payment sent', `Thank you. ${r.currency} ${r.amount} was paid with PayPal.`));
+    res.send(page('Payment sent', `Thank you. ${r.currency} ${r.amount} was paid.`));
   } catch (err) {
     console.error('[capture]', err.message);
-    res.status(502).send(page('Payment not completed', 'PayPal could not complete this payment. Nothing was charged.', { ok: false }));
+    res.status(502).send(page('Payment not completed', 'This payment could not be completed. Nothing was charged.', { ok: false }));
   }
 });
 
-app.get('/paypal/declined', (_req, res) => res.send(page('Payment cancelled', 'You cancelled on PayPal. Nothing was charged.', { ok: false })));
+app.get(['/pay/cancel', '/paypal/declined'], (_req, res) => res.send(page('Payment cancelled', 'You cancelled. Nothing was charged.', { ok: false })));
 
 // ---------- Shopping (Channel3): find the product and its live price ----------
 app.get('/api/products', async (req, res) => {

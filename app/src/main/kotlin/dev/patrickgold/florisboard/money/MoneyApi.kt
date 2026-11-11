@@ -55,7 +55,12 @@ object MoneyApi {
                     val text = res.body?.string().orEmpty()
                     val json = runCatching { JSONObject(text) }.getOrDefault(JSONObject())
                     if (res.isSuccessful) ApiResult.Ok(json)
-                    else ApiResult.Err(json.optString("error", "HTTP_${res.code}"), friendly(json.optString("error"), json.optString("message")))
+                    else {
+                        val code = json.optString("error", "HTTP_${res.code}")
+                        // The saved PayPal link is gone at PayPal: forget it so "Connect PayPal" shows again.
+                        if (code == "PAYPAL_RELINK" || code == "PAYPAL_NOT_CONNECTED") MoneyStore.setPayPal(ctx, null)
+                        ApiResult.Err(code, friendly(code, json.optString("message")))
+                    }
                 }
             } catch (e: Exception) {
                 ApiResult.Err("NETWORK", "Can't reach HushhBoard right now. Check your internet and try again.")
@@ -63,7 +68,8 @@ object MoneyApi {
         }
 
     private fun friendly(code: String, message: String): String = when {
-        code == "PAYPAL_NOT_CONNECTED" -> "Connect your PayPal first (Home > PayPal)."
+        code == "PAYPAL_NOT_CONNECTED" -> "Connect your PayPal first (Wallet > Add account > PayPal)."
+        code == "PAYPAL_RELINK" -> "Your saved PayPal link has expired. Connect PayPal again - it's one login."
         code.contains("PAYEE_ACCOUNT", true) -> "That PayPal email can't receive payments. Check it and try again."
         code.contains("INSTRUMENT_DECLINED", true) -> "PayPal declined this payment. Try another funding source in PayPal."
         code.contains("PAYER_CANNOT_PAY", true) -> "PayPal can't complete this payment from your account."

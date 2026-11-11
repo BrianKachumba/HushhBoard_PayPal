@@ -26,18 +26,21 @@ test('setup token never combines user_action with vault_instruction (PayPal reje
   assert.equal(ctx.user_action, undefined);
 });
 
-test('vaulted payment retries without stored_credential when PayPal rejects the field', async () => {
-  let n = 0;
-  const calls = fakePayPal((url, body) => {
-    if (url.endsWith('/v2/checkout/orders')) {
-      n++;
-      if (body.payment_source.paypal.stored_credential) return [400, { name: 'INVALID_REQUEST', details: [{ issue: 'MUTUALLY_EXCLUSIVE_FIELDS_PROVIDED' }] }];
-      return [201, { id: 'O1', status: 'COMPLETED', purchase_units: [{ amount: { value: '5.00', currency_code: 'USD' }, payee: { email_address: 'f@x.com' } }] }];
-    }
-    return [500, {}];
-  });
+test('vaulted payment sends vault_id only (stored_credential makes PayPal look for a billing agreement)', async () => {
+  const calls = fakePayPal((url) => url.endsWith('/v2/checkout/orders')
+    ? [201, { id: 'O1', status: 'COMPLETED', purchase_units: [{ amount: { value: '5.00', currency_code: 'USD' }, payee: { email_address: 'f@x.com' } }] }]
+    : [500, {}]);
   const r = await paypal.payWithVault({ vaultId: 'V', payeeEmail: 'f@x.com', amount: 5, currency: 'USD', requestId: 'r' });
-  assert.equal(n, 2);
   assert.equal(r.status, 'COMPLETED');
-  assert.equal(calls.filter((c) => c.url.endsWith('/orders')).at(-1).body.payment_source.paypal.stored_credential, undefined);
+  assert.deepEqual(calls.find((c) => c.url.endsWith('/orders')).body.payment_source, { paypal: { vault_id: 'V' } });
+});
+
+test('a vault link PayPal no longer knows asks the user to reconnect', async () => {
+  fakePayPal((url) => url.endsWith('/v2/checkout/orders')
+    ? [422, { name: 'UNPROCESSABLE_ENTITY', details: [{ issue: 'BILLING_AGREEMENT_NOT_FOUND', description: 'The requested Billing Agreement token was not found.' }] }]
+    : [500, {}]);
+  await assert.rejects(
+    paypal.payWithVault({ vaultId: 'V', payeeEmail: 'f@x.com', amount: 5, currency: 'USD', requestId: 'r2' }),
+    (e) => e.issue === 'PAYPAL_RELINK' && e.status === 409,
+  );
 });

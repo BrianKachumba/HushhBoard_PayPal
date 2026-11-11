@@ -108,26 +108,24 @@ export async function payWithVault({ vaultId, payeeEmail, amount, currency, note
     description: (note || 'Sent with HushhBoard').slice(0, 127),
   };
   if (payeeEmail) purchaseUnit.payee = { email_address: payeeEmail };
-  // The user taps Pay each time, so this is a customer-initiated payment with a saved PayPal
-  // (field names checked against the APIMatic PayPal SDK map: PayPalWallet + PayPalWalletStoredCredential).
-  // If PayPal rejects the stored-credential hint for this account type, retry with the vault id alone.
-  const order0 = (withCredential) => call('POST', '/v2/checkout/orders', {
-    intent: 'CAPTURE',
-    purchase_units: [purchaseUnit],
-    payment_source: {
-      paypal: withCredential
-        ? { vault_id: vaultId, stored_credential: { payment_initiator: 'CUSTOMER', usage: 'SUBSEQUENT', usage_pattern: 'IMMEDIATE' } }
-        : { vault_id: vaultId },
-    },
-  }, { requestId: withCredential ? requestId : `${requestId}-v` });
+  // Saved PayPal (Vault v3 payment token): the documented shape is `payment_source.paypal.vault_id` alone.
+  // Do NOT add `stored_credential` here: for PayPal wallets PayPal reads it as a reference to a legacy
+  // billing agreement and answers BILLING_AGREEMENT_NOT_FOUND.
   let order;
   try {
-    order = await order0(true);
+    order = await call('POST', '/v2/checkout/orders', {
+      intent: 'CAPTURE',
+      purchase_units: [purchaseUnit],
+      payment_source: { paypal: { vault_id: vaultId } },
+    }, { requestId });
   } catch (err) {
-    const fieldIssue = err instanceof PayPalError && err.status === 400 &&
-      /MUTUALLY_EXCLUSIVE|INVALID_PARAMETER|stored_credential|NOT_SUPPORTED|UNKNOWN_FIELD/i.test(JSON.stringify(err.body || {}));
-    if (!fieldIssue) throw err;
-    order = await order0(false);
+    // The saved link no longer exists at PayPal (deleted, revoked, or made with other API credentials).
+    if (err instanceof PayPalError && /BILLING_AGREEMENT_NOT_FOUND|INVALID_RESOURCE_ID|RESOURCE_NOT_FOUND|TOKEN_NOT_FOUND|PAYMENT_SOURCE_INFO_CANNOT_BE_VERIFIED/.test(JSON.stringify(err.body || {}) + err.message)) {
+      const e = new PayPalError(409, { name: 'PAYPAL_RELINK', message: 'Your saved PayPal link is no longer valid. Connect PayPal again (one login).' });
+      e.issue = 'PAYPAL_RELINK';
+      throw e;
+    }
+    throw err;
   }
   if (order.status === 'APPROVED' || order.status === 'CREATED') {
     order = await call('POST', `/v2/checkout/orders/${order.id}/capture`, {}, { requestId: `cap-${order.id}` });

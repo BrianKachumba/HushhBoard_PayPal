@@ -90,7 +90,7 @@ configure<ApplicationExtension> {
         // HushhBoard money server (PayPal). Override with -PhushhMoneyApi=... or HUSHH_MONEY_API env var.
         val moneyApi = (project.findProperty("hushhMoneyApi") as String?)?.takeIf { it.isNotBlank() }
             ?: System.getenv("HUSHH_MONEY_API")?.takeIf { it.isNotBlank() }
-            ?: "https://hushhboard-paypal.onrender.com"
+            ?: "https://hushhboard-money.onrender.com"
         buildConfigField("String", "HUSHH_MONEY_API", "\"$moneyApi\"")
         // Safaricom Daraja (sandbox) for STK push. Set hushhDarajaKey/Secret/Passkey in ~/.gradle/gradle.properties
         // or as env vars HUSHH_DARAJA_KEY / _SECRET / _PASSKEY. Empty = STK push disabled, USSD still works.

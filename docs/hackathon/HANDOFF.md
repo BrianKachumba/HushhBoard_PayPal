@@ -75,9 +75,9 @@ docs/hackathon/DEVPOST.md, VIDEO_SCRIPT.md, HANDOFF.md
 - `GET /api/paypal/orders/:id` (only if the user is payer or payee)
 - `GET /api/products?q=` (Channel3), `GET /api/fx`, `GET /health`
 
-**Build config:** `HUSHH_MONEY_API` (default `https://hushhboard-paypal.onrender.com`; set with `-PhushhMoneyApi` or the env var / repo variable). Daraja keys come from `hushhDarajaKey/Secret/Passkey` gradle properties or the `HUSHH_DARAJA_*` env vars / GitHub secrets (empty means STK is off and USSD still works). New dependencies: `com.google.mlkit:entity-extraction:16.0.0-beta5`, `androidx.browser:browser:1.8.0`, Coil 3 (`coil-compose` + `coil-network-okhttp` 3.4.0).
+**Build config:** `HUSHH_MONEY_API` (default `https://hushhboard-money.onrender.com`; set with `-PhushhMoneyApi` or the env var / repo variable). Daraja keys come from `hushhDarajaKey/Secret/Passkey` gradle properties or the `HUSHH_DARAJA_*` env vars / GitHub secrets (empty means STK is off and USSD still works). New dependencies: `com.google.mlkit:entity-extraction:16.0.0-beta5`, `androidx.browser:browser:1.8.0`, Coil 3 (`coil-compose` + `coil-network-okhttp` 3.4.0).
 
-**Render** (Blueprint `exs-dbpmvibrjlhs73abl90g`, service `hushhboard-paypal`, live at https://hushhboard-paypal.onrender.com). Env vars: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` (sandbox), `CHANNEL3_API_KEY`, `LINK_SECRET` (generated), `PAYPAL_API_BASE`, `FX_KES_PER_USD`. Secrets live **only** in Render, never in git. The owner has the values.
+**Render** (Blueprint `exs-dbpmvibrjlhs73abl90g`, service `hushhboard-money`, live at https://hushhboard-money.onrender.com). Env vars: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` (sandbox), `CHANNEL3_API_KEY`, `LINK_SECRET` (generated), `PAYPAL_API_BASE`, `FX_KES_PER_USD`. Secrets live **only** in Render, never in git. The owner has the values.
 
 **CI** (`.github/workflows/android.yml`): `build` (assembleDebug plus the money unit tests), `nlp-tests`, `money-server`. All green on commit `d459be5`. The debug APK is the build job's artifact.
 
