@@ -118,7 +118,6 @@ docs/hackathon/DEVPOST.md, VIDEO_SCRIPT.md, HANDOFF.md
 - Keep the keyboard as in PR #6; change only the app and the Pay handling.
 - No extra Pay tab; PayPal lives inside Phone, Till, Paybill and Bank.
 - Don't put secrets in git (PayPal secret, Channel3 key, Daraja keys).
-- Commit trailers in this project: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` plus the session link.
 
 ## 8. Syncing the public repo back to the private `hackathon/paypal`
 
