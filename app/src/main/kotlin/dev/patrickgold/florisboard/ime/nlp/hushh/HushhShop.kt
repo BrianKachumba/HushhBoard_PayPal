@@ -25,6 +25,12 @@ data class HushhShopCandidate(val query: String) : SuggestionCandidate {
 
     companion object {
         private val dismissed = mutableSetOf<String>()
+        private val NOT_PRODUCTS = setOf(
+            "it", "this", "that", "them", "those", "these", "one", "something", "anything", "time", "food", "lunch",
+            "dinner", "breakfast", "out", "back", "up", "in", "to", "you", "him", "her", "us", "more", "less",
+            "now", "later", "today", "tomorrow", "tonight", "here", "there", "what", "when", "where", "why", "how",
+            "kitu", "hiyo", "hii", "hizo", "chakula", "sasa", "kesho", "leo",
+        )
 
         /** Looks only at the sentence being typed, so old messages in the field don't trigger it. */
         fun from(textBeforeCursor: CharSequence): HushhShopCandidate? {
@@ -32,6 +38,9 @@ data class HushhShopCandidate(val query: String) : SuggestionCandidate {
             val sentence = tail.split(Regex("[.!?\\n]\\s")).last()
             val q = MoneyAi.shoppingQuery(sentence) ?: return null
             if (q.length < 4 || q.lowercase() in dismissed) return null
+            // Ignore everyday phrases ("buy it tomorrow", "get me some time") - only things that look like products.
+            val first = q.substringBefore(' ').lowercase()
+            if (first in NOT_PRODUCTS) return null
             return HushhShopCandidate(q)
         }
 
