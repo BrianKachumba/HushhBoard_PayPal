@@ -72,6 +72,20 @@ sealed class QuickAction {
         }
     }
 
+    /** One tap: product search sheet over the current app, pre-filled with the product being typed (if any). */
+    @Serializable
+    @SerialName("launch_shop")
+    data object LaunchShop : QuickAction() {
+        override fun onPointerUp(context: Context) {
+            val editorInstance by context.editorInstance()
+            val content = editorInstance.activeContent
+            val selected = content.selectedText.toString().trim()
+            val query = selected.takeIf { it.length in 2..80 }
+                ?: dev.patrickgold.florisboard.ime.nlp.hushh.HushhShopCandidate.queryIn(content.textBeforeSelection)
+            dev.patrickgold.florisboard.money.ShopActivity.launch(context, query, fromKeyboard = true)
+        }
+    }
+
     @Serializable
     @SerialName("insert_text")
     data class InsertText(val data: String) : QuickAction() {
@@ -125,6 +139,7 @@ fun QuickAction.computeDisplayName(evaluator: ComputingEvaluator): String {
         })
         is QuickAction.InsertText -> data
         is QuickAction.LaunchPay -> "Pay"                          // computeDisplayName
+        is QuickAction.LaunchShop -> "Shop"
 
     }
 }
@@ -167,5 +182,6 @@ fun QuickAction.computeTooltip(evaluator: ComputingEvaluator): String {
         })
         is QuickAction.InsertText -> "Insert text '$data'"
         is QuickAction.LaunchPay -> "Send money fast with Pay"     // computeTooltip
+        is QuickAction.LaunchShop -> "Find a product and live prices"
     }
 }

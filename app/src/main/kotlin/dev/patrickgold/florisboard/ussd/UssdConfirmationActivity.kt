@@ -55,6 +55,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -85,15 +86,13 @@ data class PayAccount(
     },
 )
 
-/** Builds the pay screen's "Payee" rows from the accounts the user connected during setup. */
-private fun accountsToRows(a: MoneyAccounts): List<PayAccount> = buildList {
-    a.phones.forEach { p ->
-        val kind = if (p.network == Network.AIRTEL) SourceKind.AIRTEL else SourceKind.MPESA
-        add(PayAccount("phone-" + p.id, if (kind == SourceKind.AIRTEL) "Airtel Money" else "M-Pesa", p.number, kind))
-    }
-    a.banks.forEach { b -> add(PayAccount("bank-" + b.id, b.bank?.name ?: "Bank", "•••• " + b.accountNumber.takeLast(4), SourceKind.BANK)) }
-    a.paypal?.let { add(PayAccount("paypal", "PayPal", it.email, SourceKind.PAYPAL)) }
-}
+/** The account actually used to pay: a payee bar plus the account picked in it (its primary by default). */
+private fun payAccountOf(g: PayeeGroup, o: PayeeOption): PayAccount = PayAccount(
+    id = o.id,
+    provider = when (g.kind) { SourceKind.MPESA -> if (g.name == "M-PESA") "M-Pesa" else g.name; SourceKind.AIRTEL -> "Airtel Money"; else -> g.name },
+    number = o.value,
+    kind = g.kind,
+)
 
 private fun TransactionType.toTab() = when (this) {
     TransactionType.TILL -> PayTab.TILL
@@ -125,6 +124,7 @@ class UssdConfirmationActivity : ComponentActivity() {
         const val EXTRA_PAY_FIELDS = "PAY_FIELDS"
         /** Open with Channel3 results for this product (from the keyboard's shopping chip). */
         const val EXTRA_SHOP_QUERY = "SHOP_QUERY"
+        private const val HANDOFF_CLIP = "hushh-handoff"
     }
 
     @Suppress("UNCHECKED_CAST", "DEPRECATION")
@@ -151,13 +151,10 @@ class UssdConfirmationActivity : ComponentActivity() {
     private val transactionTypeState = MutableStateFlow(TransactionType.SEND_MONEY)
     private val transactionDataState = MutableStateFlow<Map<String, String>>(emptyMap())
 
-    /** Rows come from the accounts connected in setup / Home; extra payees added here are session-only. */
-    private val extraPayees = MutableStateFlow<List<PayAccount>>(emptyList())
     private val bankDestinationState = MutableStateFlow(BankDestination.BANK_ACCOUNT)
     private val outcomeState = MutableStateFlow<PayOutcome?>(null)
     private val smartState = MutableStateFlow<SmartFill?>(null)
     private val preferPayPalState = MutableStateFlow(false)
-    private val shopQueryState = MutableStateFlow<String?>(null)
 
     private val cameraEditLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -216,18 +213,16 @@ class UssdConfirmationActivity : ComponentActivity() {
             val type by transactionTypeState.collectAsState()
             val data by transactionDataState.collectAsState()
             val money by MoneyStore.accounts.collectAsState()
-            val extra by extraPayees.collectAsState()
-            val accounts = remember(money, extra) { accountsToRows(money) + extra }
+            val groups = remember(money) { Payees.groups(money) }
             val destination by bankDestinationState.collectAsState()
             val outcome by outcomeState.collectAsState()
             val smart by smartState.collectAsState()
             val preferPayPal by preferPayPalState.collectAsState()
-            val shopQuery by shopQueryState.collectAsState()
 
             UssdTransactionScreen(
                 type = type,
                 data = data,
-                accounts = accounts,
+                groups = groups,
                 money = money,
                 destination = destination,
                 smart = smart,
@@ -252,51 +247,23 @@ class UssdConfirmationActivity : ComponentActivity() {
                         Intent(this, TransparentCameraActivity::class.java).putExtra("IS_FOR_EDIT", true)
                     )
                 },
-                onAddPayee = { provider, number ->
-                    extraPayees.value = extraPayees.value +
-                        PayAccount(System.currentTimeMillis().toString(), provider, number)
-                },
                 onBack = { finish() },
                 onConfirm = { account -> handlePay(type, data, account) }
             )
-
-            shopQuery?.let { q ->
-                ShopDialog(q, onDismiss = { shopQueryState.value = null }, onRequestReady = { text ->
-                    // Drop the PayPal request straight into the chat the user came from.
-                    dev.patrickgold.florisboard.scanner.HushhInsert.send(this@UssdConfirmationActivity, text)
-                    Toast.makeText(this@UssdConfirmationActivity, "PayPal request added to your chat", Toast.LENGTH_SHORT).show()
-                    finish()
-                }) { action ->
-                    if (action is ShopAction.PayWithPayPal) {
-                        val p = action.product
-                        transactionTypeState.value = TransactionType.BANK
-                        bankDestinationState.value = BankDestination.PAYPAL
-                        transactionDataState.value = transactionDataState.value.toMutableMap().apply {
-                            put("amount", "%.2f".format(java.util.Locale.US, p.price))
-                            put("note", p.title.take(100))
-                        }
-                        preferPayPalState.value = true
-                    }
-                    shopQueryState.value = null
-                }
-            }
 
             outcome?.let { o ->
                 PayOutcomeDialog(
                     outcome = o,
                     onDismiss = { if (o !is PayOutcome.Sending) outcomeState.value = null },
-                    onOpenApp = { app -> Handoffs.open(this, app); outcomeState.value = null },
+                    onOpenApp = { app -> handOff(app, (o as? PayOutcome.Route)?.route, data); outcomeState.value = null },
                     onSendPayPal = { email, amount -> sendPayPal(email, amount, data["note"].orEmpty()) },
                     onDone = { outcomeState.value = null; finish() },
                 )
             }
         }
 
-        // Look at what the user just copied (e.g. a chat message) and offer an AI fill.
-        // Launched from the keyboard's shopping chip: go straight to live prices.
-        intent.getStringExtra(EXTRA_SHOP_QUERY)?.takeIf { it.isNotBlank() }?.let { shopQueryState.value = it }
-            // Otherwise, silently look at a message the user *just* copied (never an old one).
-            ?: window.decorView.postDelayed({ freshClip()?.let { runSmartFill(it) } }, 350)
+        // Silently look at a message the user *just* copied (never an old one), unless the page came prefilled.
+        if (structuredPayment() == null) window.decorView.postDelayed({ freshClip()?.let { runSmartFill(it) } }, 350)
     }
 
     /** A clip copied in the last 3 minutes that we haven't offered before - or nothing. */
@@ -304,6 +271,7 @@ class UssdConfirmationActivity : ComponentActivity() {
     private fun freshClip(): String? = runCatching {
         val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
         val desc = cm.primaryClipDescription ?: return null
+        if (desc.label == HANDOFF_CLIP) return null // the amount we copied for a hand-off, not a message
         val ts = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) desc.timestamp else 0L
         if (ts == 0L || System.currentTimeMillis() - ts > 3 * 60_000) return null
         val text = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
@@ -314,6 +282,32 @@ class UssdConfirmationActivity : ComponentActivity() {
         offeredClipKey = key
         text
     }.getOrNull()
+
+    /**
+     * Hand-off to the official app: the amount goes on the clipboard (neither M-PESA nor PayPal accept a
+     * pre-filled amount from other apps), and the step is logged in Activity so it doesn't just vanish.
+     */
+    private fun handOff(app: HandoffApp, route: PayRoute?, data: Map<String, String>) {
+        val amount = data["amount"].orEmpty()
+        if (amount.isNotBlank()) {
+            runCatching {
+                val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText(HANDOFF_CLIP, amount))
+            }
+            Toast.makeText(this, "Amount $amount copied. Paste it in ${app.label.removePrefix("Open ")}", Toast.LENGTH_LONG).show()
+        }
+        val h = route as? PayRoute.Handoff
+        MoneyStore.recordActivity(
+            this,
+            MoneyActivity(
+                id = "handoff-" + System.currentTimeMillis(), kind = "handoff", status = "HANDED_OFF",
+                amount = amount.toDoubleOrNull() ?: 0.0,
+                currency = if (lastSource == SourceKind.PAYPAL) "USD" else "KES",
+                counterparty = app.label.removePrefix("Open "), note = h?.title.orEmpty(), at = System.currentTimeMillis(),
+            ),
+        )
+        Handoffs.open(this, app)
+    }
 
     /** Remember the clip so it is never offered again (after it was used or dismissed). */
     private fun markClipOffered() {
@@ -333,7 +327,7 @@ class UssdConfirmationActivity : ComponentActivity() {
         transactionDataState.value = transactionDataState.value.toMutableMap().apply { putAll(fill.fields) }
         preferPayPalState.value = fill.preferPayPal && MoneyStore.accounts.value.paypal != null
         smartState.value = null
-        fill.shopQuery?.let { shopQueryState.value = it }
+        fill.shopQuery?.let { ShopActivity.launch(this, it, fromKeyboard = true); finish(); return }
     }
 
     private fun sendPayPal(email: String, amount: Double, note: String) {
@@ -350,7 +344,10 @@ class UssdConfirmationActivity : ComponentActivity() {
      * Payment dispatch. SIM picking is gone from the UI, so we resolve a SIM from the
      * chosen provider here. Replace this body with your new payment handler.
      */
+    private var lastSource: SourceKind? = null
+
     private fun handlePay(type: TransactionType, data: Map<String, String>, account: PayAccount) {
+        lastSource = account.kind
         val route = PayRouter.route(account.kind, type.toTab(), data, bankDestinationState.value, MoneyStore.accounts.value)
         when (route) {
             is PayRoute.Local -> handleLocalPay(route.tab.toType(), route.fields, account)
@@ -485,7 +482,7 @@ private val AmberText = Color(0xFFB26A00)
 fun UssdTransactionScreen(
     type: TransactionType,
     data: Map<String, String>,
-    accounts: List<PayAccount>,
+    groups: List<PayeeGroup>,
     money: MoneyAccounts,
     destination: BankDestination,
     smart: SmartFill?,
@@ -498,7 +495,6 @@ fun UssdTransactionScreen(
     onTypeChange: (TransactionType) -> Unit,
     onDataChange: (String, String) -> Unit,
     onCameraEdit: () -> Unit,
-    onAddPayee: (provider: String, number: String) -> Unit,
     onBack: () -> Unit,
     onConfirm: (PayAccount) -> Unit,
 ) {
@@ -506,16 +502,23 @@ fun UssdTransactionScreen(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    var selectedId by remember { mutableStateOf<String?>(null) }
-    var showAddDialog by remember { mutableStateOf(false) }
+    // Which payee bar is selected, and (only for this payment) which of its accounts if not the primary.
+    var selectedKey by remember { mutableStateOf<String?>(null) }
+    var pickedOption by remember { mutableStateOf<String?>(null) }
+    var showAddSheet by remember { mutableStateOf(false) }
     var active by remember { mutableStateOf<Field?>(null) }
-    val selected = accounts.find { it.id == selectedId }
     val latestData by rememberUpdatedState(data)
 
-    // AI asked for PayPal, or nothing picked yet: preselect sensibly.
-    LaunchedEffect(preferPayPal, accounts) {
-        if (preferPayPal && accounts.any { it.id == "paypal" }) selectedId = "paypal"
-        else if (selectedId == null || accounts.none { it.id == selectedId }) selectedId = accounts.firstOrNull()?.id
+    // PayPal is only listed where it works (never Till/Paybill; Phone only for M-PESA numbers).
+    val visibleGroups = remember(groups, type, data["phone"]) { Payees.visible(groups, type.toTab(), data["phone"].orEmpty()) }
+    val selectedGroup = visibleGroups.firstOrNull { it.key == selectedKey }
+    val selectedOption = selectedGroup?.let { g -> g.options.firstOrNull { it.id == pickedOption } ?: g.primary }
+    val selected = if (selectedGroup != null && selectedOption != null) payAccountOf(selectedGroup, selectedOption) else null
+
+    // AI asked for PayPal, or nothing picked yet / picked bar no longer listed: preselect sensibly.
+    LaunchedEffect(preferPayPal, visibleGroups) {
+        if (preferPayPal && visibleGroups.any { it.kind == SourceKind.PAYPAL }) { selectedKey = "paypal"; pickedOption = null }
+        else if (selectedKey == null || visibleGroups.none { it.key == selectedKey }) { selectedKey = visibleGroups.firstOrNull()?.key; pickedOption = null }
     }
 
     val fields = fieldsFor(type, destination)
@@ -701,44 +704,43 @@ fun UssdTransactionScreen(
                 }
             }
 
-            // Payee list
-            Text("Payee", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 6.dp))
-            Column(Modifier.fillMaxWidth().background(CardBg)) {
-                if (accounts.isEmpty()) {
+            // Payee list: one bar per provider; tap = use its primary, the chevron picks another account.
+            Text("Pay from", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp))
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (visibleGroups.isEmpty()) {
                     Text(
-                        "No accounts yet. Add your M-PESA, banks and PayPal in the HushhBoard app.",
-                        color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(16.dp)
+                        "No accounts yet. Add your M-PESA, bank or PayPal below.",
+                        color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
-                accounts.forEachIndexed { i, acc ->
-                    if (i > 0) HorizontalDivider(color = Divider, modifier = Modifier.padding(start = 58.dp))
-                    PayeeRow(acc, acc.id == selectedId) {
-                        selectedId = acc.id
-                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                    }
+                visibleGroups.forEach { g ->
+                    val isSel = g.key == selectedKey
+                    PayeeBar(
+                        group = g, selected = isSel,
+                        current = if (isSel) selectedOption ?: g.primary else g.primary,
+                        onSelect = {
+                            if (!isSel) { selectedKey = g.key; pickedOption = null }
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        },
+                        onPick = { o ->
+                            selectedKey = g.key; pickedOption = o.id
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        },
+                    )
                 }
-                if (money.paypal == null) {
-                    HorizontalDivider(color = Divider, modifier = Modifier.padding(start = 44.dp))
-                    Row(
-                        Modifier.fillMaxWidth().height(30.dp).clickable(onClick = onConnectPayPal).padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.Link, null, tint = PayPalBlue, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Text("PayPal", color = TextMain, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                        Text("Connect", color = PayPalBlue, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
+                if (money.paypal == null && Payees.payPalAllowed(type.toTab(), data["phone"].orEmpty())) {
+                    ConnectPayPalBar(onConnectPayPal)
                 }
-                HorizontalDivider(color = Divider)
                 Row(
-                    Modifier.fillMaxWidth().height(30.dp).clickable { showAddDialog = true },
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { active = null; showAddSheet = true }.padding(vertical = 10.dp),
                     horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Rounded.Add, null, tint = Brand, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Add Payee", color = Brand, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Icon(Icons.Rounded.Add, null, tint = Brand, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Add account", color = Brand, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
+            Spacer(Modifier.height(8.dp))
         }
 
         // Confirm and Pay (the pad's big key takes over while the pad is open)
@@ -783,8 +785,8 @@ fun UssdTransactionScreen(
         }
     }
 
-    if (showAddDialog) AddPayeeDialog(onDismiss = { showAddDialog = false }) { p, n ->
-        onAddPayee(p, n); showAddDialog = false
+    if (showAddSheet) AddAccountSheet(SheetPalette.Light, onDismiss = { showAddSheet = false }) { msg ->
+        android.widget.Toast.makeText(view.context, msg, android.widget.Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -997,79 +999,75 @@ private fun TextFieldRow(
     }
 }
 
-/** Brand colour + monogram for each provider, so accounts are recognised at a glance. */
-private fun providerBadge(acc: PayAccount): Pair<Color, String> {
-    val p = acc.provider.lowercase()
-    return when {
-        acc.kind == SourceKind.PAYPAL -> PayPalBlue to "P"
-        acc.kind == SourceKind.MPESA -> Color(0xFF3AA935) to "M"
-        acc.kind == SourceKind.AIRTEL -> Color(0xFFE40000) to "A"
-        p.startsWith("equity") -> Color(0xFFA32A29) to "E"
-        p.startsWith("kcb") -> Color(0xFF1B8F3A) to "K"
-        p.startsWith("co-op") || p.startsWith("coop") -> Color(0xFF1D6E3F) to "C"
-        p.startsWith("absa") -> Color(0xFFDC0032) to "A"
-        p.startsWith("ncba") -> Color(0xFF1E3A8A) to "N"
-        p.startsWith("stanbic") -> Color(0xFF0033A1) to "S"
-        p.startsWith("standard") -> Color(0xFF0072AA) to "SC"
-        p.startsWith("i&m") -> Color(0xFFB8860B) to "I&M"
-        p.startsWith("diamond") || p.startsWith("dtb") -> Color(0xFF00529B) to "D"
-        p.startsWith("family") -> Color(0xFF6A1B9A) to "F"
-        else -> Color(0xFF607D8B) to acc.provider.take(1).uppercase()
-    }
-}
-
+/** One payee bar: logo, provider, the account in use, and a chevron to pick another account (this payment only). */
 @Composable
-private fun ProviderBadge(acc: PayAccount, selected: Boolean) {
-    val (color, mono) = providerBadge(acc)
-    Box(
-        Modifier.size(30.dp).clip(CircleShape).background(color)
-            .border(if (selected) 2.dp else 0.dp, if (selected) Color.White else Color.Transparent, CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(mono, color = Color.White, fontSize = if (mono.length > 1) 9.sp else 13.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun PayeeRow(acc: PayAccount, selected: Boolean, onSelect: () -> Unit) {
-    val (color, _) = providerBadge(acc)
+private fun PayeeBar(group: PayeeGroup, selected: Boolean, current: PayeeOption, onSelect: () -> Unit, onPick: (PayeeOption) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(14.dp)
     Row(
-        Modifier.fillMaxWidth().height(48.dp)
-            .background(if (selected) color.copy(alpha = 0.08f) else Color.Transparent)
-            .clickable(onClick = onSelect).padding(horizontal = 16.dp),
+        Modifier.fillMaxWidth().height(60.dp).clip(shape)
+            .background(if (selected) Brand.copy(alpha = 0.10f) else CardBg)
+            .border(if (selected) 1.5.dp else 1.dp, if (selected) Brand else Divider, shape)
+            .clickable(onClick = onSelect).padding(start = 12.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ProviderBadge(acc, selected)
+        BrandLogo(group.logo, 36.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(acc.provider, color = TextMain, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
-            Text(acc.number, color = TextMuted, fontSize = 12.sp, maxLines = 1)
+            Text(group.name, color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(current.label, color = if (selected) TextMain.copy(alpha = 0.75f) else TextMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (group.options.size > 1 && current.id == group.primaryId) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("Primary", color = Brand, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
-        if (selected) Icon(Icons.Rounded.CheckCircle, "Selected", tint = color, modifier = Modifier.size(20.dp))
-        else Box(Modifier.size(20.dp).border(1.5.dp, Color(0xFFCCCCCC), CircleShape))
+        if (group.options.size > 1) {
+            Box {
+                Row(
+                    Modifier.clip(RoundedCornerShape(10.dp)).clickable { menu = true }.padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("${group.options.size}", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Icon(Icons.Rounded.ExpandMore, "Other accounts", tint = TextMuted, modifier = Modifier.size(20.dp))
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, modifier = Modifier.background(CardBg)) {
+                    group.options.forEach { o ->
+                        DropdownMenuItem(
+                            leadingIcon = { BrandLogo(group.logo, 24.dp) },
+                            text = {
+                                Column {
+                                    Text(o.label, color = TextMain, fontSize = 14.sp, fontWeight = if (o.id == current.id) FontWeight.Bold else FontWeight.Normal)
+                                    val sub = listOfNotNull(o.holder.takeIf { it.isNotBlank() }, "Primary".takeIf { o.id == group.primaryId }).joinToString(" · ")
+                                    if (sub.isNotEmpty()) Text(sub, color = TextMuted, fontSize = 11.sp)
+                                }
+                            },
+                            onClick = { menu = false; onPick(o) },
+                        )
+                    }
+                }
+            }
+        } else Spacer(Modifier.width(8.dp))
     }
 }
 
 @Composable
-private fun AddPayeeDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
-    var provider by remember { mutableStateOf("") }
-    var number by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add Payee") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(provider, { provider = it }, label = { Text("Name (e.g. Equity)") }, singleLine = true)
-                OutlinedTextField(number, { number = it }, label = { Text("Number / account") }, singleLine = true)
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onAdd(provider.trim(), number.trim()) }, enabled = provider.isNotBlank() && number.isNotBlank()) {
-                Text("Add", color = Brand)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextMuted) } }
-    )
+private fun ConnectPayPalBar(onConnect: () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        Modifier.fillMaxWidth().height(60.dp).clip(shape).background(CardBg).border(1.dp, Divider, shape)
+            .clickable(onClick = onConnect).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        BrandLogo(Brands.PAYPAL, 36.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("PayPal", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("Log in once on PayPal's page", color = TextMuted, fontSize = 12.sp)
+        }
+        Text("Connect", color = PayPalBlue, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    }
 }
 
 // ───────────────────────── Money: AI banner, route hint, Bank-tab receiver, outcome dialogs ─────────────────────────

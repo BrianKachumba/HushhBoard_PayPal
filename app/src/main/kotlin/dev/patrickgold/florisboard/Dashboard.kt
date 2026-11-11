@@ -158,7 +158,8 @@ class DashboardViewModel(context: Context) : ViewModel() {
         // Hackathon build: the crash-report step is gone; the last step is "Connect your money".
         val hasAccountsStep = dev.patrickgold.florisboard.money.MoneyStore.isSetupDone(context)
 
-        val hasSmsPerm = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECEIVE_SMS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        // Hackathon build: no SMS reading. The third step is the one-tap permissions screen.
+        val hasSmsPerm = context.getSharedPreferences("hushh_setup", Context.MODE_PRIVATE).getBoolean("perms_asked", false)
 
 
         _gatekeeperState.value = GatekeeperState(isEnabled, isSelected, hasAccountsStep, hasSmsPerm)
@@ -266,116 +267,130 @@ fun HushhCompanionApp(viewModel: DashboardViewModel) { // 🚀 FIXED: Added para
 
 // ================================
 
-@OptIn(com.google.accompanist.permissions.ExperimentalPermissionsApi::class)
-
+/**
+ * One step on screen at a time, one button per step, and it moves on by itself as soon as the step is done
+ * (we watch for the user coming back from Settings or the keyboard picker). Android doesn't let any app switch a
+ * keyboard on for you, so step 1 is the only one that needs a flip in Settings - everything else is a single tap.
+ */
 @Composable
 
 fun SetupWizardScreen(viewModel: DashboardViewModel, gatekeeper: GatekeeperState, onComplete: () -> Unit) {
 
     val context = LocalContext.current
-
     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-
     val lifecycleOwner = LocalLifecycleOwner.current
-
     val view = LocalView.current
 
-    val smsPermissionState = com.google.accompanist.permissions.rememberPermissionState(android.Manifest.permission.RECEIVE_SMS)
-
-
     var isEnabled by remember { mutableStateOf(gatekeeper.isEnabled) }
-
     var isSelected by remember { mutableStateOf(gatekeeper.isSelected) }
-
+    var permsDone by remember { mutableStateOf(gatekeeper.hasSmsPerm) }
 
     fun checkKeyboardStatus() {
-
         isEnabled = imm.enabledInputMethodList.any { it.packageName == context.packageName }
-
         isSelected = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)?.contains(context.packageName) == true
-
         viewModel.evaluateSetupState(context)
-
     }
-
 
     DisposableEffect(lifecycleOwner, view) {
-
         val lifecycleObserver = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) checkKeyboardStatus() }
-
         val focusListener = android.view.ViewTreeObserver.OnWindowFocusChangeListener { hasFocus -> if (hasFocus) checkKeyboardStatus() }
-
         lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
-
         view.viewTreeObserver.addOnWindowFocusChangeListener(focusListener)
-
         onDispose {
-
             lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
-
             view.viewTreeObserver.removeOnWindowFocusChangeListener(focusListener)
-
         }
-
+    }
+    // While the picker / settings are open, keep checking so we advance the moment the user is done.
+    LaunchedEffect(isEnabled, isSelected) {
+        while (!(isEnabled && isSelected)) { kotlinx.coroutines.delay(700); checkKeyboardStatus() }
     }
 
-
-    LaunchedEffect(Unit) { checkKeyboardStatus() }
-
-
-    val currentStep = when {
-
-        !isEnabled -> 1
-
-        !isSelected -> 2
-
-        !gatekeeper.hasSmsPerm -> 3
-
-        else -> 4
-
+    val permissions = remember {
+        buildList {
+            add(android.Manifest.permission.CAMERA)
+            add(android.Manifest.permission.RECORD_AUDIO)
+            add(android.Manifest.permission.CALL_PHONE)
+            add(android.Manifest.permission.READ_PHONE_STATE)
+            if (android.os.Build.VERSION.SDK_INT >= 33) add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }.toTypedArray()
+    }
+    val permLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        // Whatever the user answers we move on; each feature asks again only if it's used without permission.
+        context.getSharedPreferences("hushh_setup", Context.MODE_PRIVATE).edit().putBoolean("perms_asked", true).apply()
+        permsDone = true
+        viewModel.evaluateSetupState(context)
     }
 
+    val step = when { !isEnabled -> 0; !isSelected -> 1; !permsDone -> 2; else -> 3 }
+    LaunchedEffect(step) { if (step == 3) onComplete() }
 
-    val progress = currentStep / 5f
-
-
-    Column(modifier = Modifier.fillMaxSize().background(Bg).padding(horizontal = 20.dp)) {
-
-        Spacer(Modifier.height(32.dp))
-
-        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)), color = Accent, trackColor = Surface)
-
-        Spacer(Modifier.height(32.dp))
-
-        Text("Set up HushhBoard", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
-
-        Text("Just a few quick steps to get you started", fontSize = 14.sp, color = Color.Gray, modifier = Modifier.padding(top = 6.dp, bottom = 24.dp))
-
-
-        SetupStepItem(1, "Enable Keyboard", "Turn on HushhBoard in system settings", currentStep == 1, currentStep > 1) { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
-
-        SetupStepItem(2, "Select as Default", "Switch to HushhBoard", currentStep == 2, currentStep > 2) { imm.showInputMethodPicker() }
-
-        SetupStepItem(3, "Financial Insights", "Allow secure local payment tracking", currentStep == 3, currentStep > 3) { smsPermissionState.launchPermissionRequest() }
-
-        SetupStepItem(4, "Connect your money", "M-PESA, Airtel Money, banks and PayPal", false, false) { }
-
-
-        Spacer(Modifier.weight(1f))
-
-
-        AnimatedVisibility(visible = currentStep == 4, enter = fadeIn() + slideInVertically(), exit = fadeOut()) {
-
-            Button(onClick = onComplete, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
-
-                Text("Continue", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-
+    Column(modifier = Modifier.fillMaxSize().background(Bg).statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp)) {
+        Spacer(Modifier.height(20.dp))
+        // Segmented progress: setup steps + "connect money"
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            repeat(4) { i ->
+                val c by androidx.compose.animation.animateColorAsState(if (i <= step) Accent else Surface, label = "seg")
+                Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(50)).background(c))
             }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("Step ${step.coerceAtMost(2) + 1} of 4", color = Color.Gray, fontSize = 12.sp)
 
+        AnimatedContent(targetState = step.coerceAtMost(2), modifier = Modifier.weight(1f), label = "setup-step",
+            transitionSpec = { (fadeIn() + slideInHorizontally { it / 3 }) togetherWith fadeOut() }) { s ->
+            val (icon, title, body) = when (s) {
+                0 -> Triple(Icons.Rounded.Keyboard, "Turn on HushhBoard", "Tap the button, switch HushhBoard on, then come back. We'll carry on by ourselves.")
+                1 -> Triple(Icons.Rounded.SwapHoriz, "Make it your keyboard", "Pick HushhBoard in the list that pops up.")
+                else -> Triple(Icons.Rounded.VerifiedUser, "Allow the extras", "Camera to scan tills and QR codes, microphone for voice and song search, and phone access for M-PESA prompts. One tap.")
+            }
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(112.dp).clip(RoundedCornerShape(32.dp)).background(Accent.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = Accent, modifier = Modifier.size(52.dp))
+                }
+                Spacer(Modifier.height(28.dp))
+                Text(title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Spacer(Modifier.height(10.dp))
+                Text(body, fontSize = 15.sp, color = Color.Gray, lineHeight = 21.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                if (s == 2) {
+                    Spacer(Modifier.height(24.dp))
+                    listOf(
+                        Icons.Rounded.DocumentScanner to "Scan text, tills and QR codes",
+                        Icons.Rounded.KeyboardVoice to "Voice typing and song search",
+                        Icons.Rounded.Payments to "M-PESA and Airtel prompts",
+                    ).forEach { (ic, t) ->
+                        Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(ic, null, tint = Accent, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(t, color = Color.White, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
         }
 
-        Spacer(Modifier.height(24.dp))
-
+        Button(
+            onClick = {
+                when (step) {
+                    0 -> context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                    1 -> imm.showInputMethodPicker()
+                    2 -> permLauncher.launch(permissions)
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Accent),
+        ) {
+            Text(when (step) { 0 -> "Turn on"; 1 -> "Choose HushhBoard"; else -> "Allow" }, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+        }
+        if (step == 2) {
+            TextButton(onClick = {
+                context.getSharedPreferences("hushh_setup", Context.MODE_PRIVATE).edit().putBoolean("perms_asked", true).apply()
+                permsDone = true; viewModel.evaluateSetupState(context)
+            }, modifier = Modifier.fillMaxWidth()) { Text("Not now", color = Color.Gray) }
+        } else Spacer(Modifier.height(48.dp))
+        Spacer(Modifier.height(12.dp))
     }
 
 }

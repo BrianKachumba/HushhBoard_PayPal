@@ -6,21 +6,23 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.input.pointer.PointerEventPass
+import kotlin.math.abs
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DocumentScanner
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -32,7 +34,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -47,10 +48,7 @@ import dev.patrickgold.florisboard.TransparentCameraActivity
 import dev.patrickgold.florisboard.ears.SongCaptureActivity
 import dev.patrickgold.florisboard.ime.text.key.KeyCode
 import dev.patrickgold.florisboard.ime.text.keyboard.TextKeyData
-import dev.patrickgold.florisboard.ime.theme.FlorisImeUi
 import dev.patrickgold.florisboard.keyboardManager
-import org.florisboard.lib.snygg.ui.SnyggBox
-import org.florisboard.lib.snygg.ui.SnyggIcon
 
 /** One mode of a toolbar switch: its icon, its spoken name and what tapping it launches. */
 class HushMode(val name: String, val icon: ImageVector, val launch: (Context) -> Unit)
@@ -68,78 +66,73 @@ private object HushModeMemory {
 }
 
 /**
- * Toolbar mode switch, Google-account-switcher style:
- *  - **swipe up or down** on it to change mode (the icon slides to the next one, with a light haptic),
+ * Toolbar mode switch:
+ *  - **swipe in any direction** on it (up, down, left or right) to flip to the other mode,
  *  - **tap** to launch the current mode.
- * Two dots show which mode is active. No rings, no long-press.
+ * One gesture = at most one switch, decided as soon as the finger has clearly moved, so it never
+ * depends on which way you swiped. Looks like the emoji row's "all emojis" key: an icon centred
+ * in a soft rounded square.
  */
 @Composable
 fun HushModeSwitch(key: String, modes: List<HushMode>) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
-    var index by androidx.compose.runtime.remember { mutableStateOf(HushModeMemory.get(context, key).coerceIn(0, modes.lastIndex)) }
-    var direction by androidx.compose.runtime.remember { mutableStateOf(1) }
+    var index by remember { mutableStateOf(HushModeMemory.get(context, key).coerceIn(0, modes.lastIndex)) }
+    val current by rememberUpdatedState(index)
 
-    fun step(delta: Int) {
-        direction = delta
-        index = (index + delta + modes.size) % modes.size
+    fun flip() {
+        index = (index + 1) % modes.size
         HushModeMemory.set(context, key, index)
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
     Box(
         modifier = Modifier
             .fillMaxHeight()
-            .width(44.dp)
-            .semantics { contentDescription = "${modes[index].name}. Tap to open, swipe up or down to switch." }
+            .width(46.dp)
+            .padding(horizontal = 3.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.Gray.copy(alpha = 0.12f))
+            .semantics { contentDescription = "${modes[index].name}. Tap to open, swipe to switch." }
             .pointerInput(modes.size) {
-                var dragged = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { dragged = 0f },
-                    onDragEnd = { dragged = 0f },
-                    onDragCancel = { dragged = 0f },
-                ) { change, dy ->
-                    change.consume()
-                    dragged += dy
-                    val threshold = 18.dp.toPx()
-                    if (dragged <= -threshold) { step(1); dragged = 0f }        // swipe up -> next
-                    else if (dragged >= threshold) { step(-1); dragged = 0f }   // swipe down -> previous
+                val slop = 10.dp.toPx()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    var switched = false
+                    var moved = false
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        change.consume()
+                        val d = change.position - down.position
+                        if (!moved && (abs(d.x) > slop || abs(d.y) > slop)) {
+                            moved = true
+                            if (!switched) { switched = true; flip() }
+                        }
+                        if (!change.pressed) {
+                            if (!moved) modes[current].launch(context)
+                            break
+                        }
+                    }
                 }
-            }
-            .pointerInput(index) {
-                detectTapGestures(onTap = { modes[index].launch(context) })
             },
         contentAlignment = Alignment.Center,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AnimatedContent(
-                targetState = index,
-                transitionSpec = {
-                    val d = direction
-                    (slideInVertically(tween(160)) { h -> h * d } + fadeIn(tween(160))) togetherWith
-                        (slideOutVertically(tween(160)) { h -> -h * d } + fadeOut(tween(120)))
-                },
-                label = "hush-mode-$key",
-            ) { i ->
-                SnyggBox(elementName = FlorisImeUi.SmartbarActionKey.elementName, modifier = Modifier.size(32.dp)) {
-                    SnyggIcon(imageVector = modes[i].icon)
-                }
-            }
-            // Position dots: which of the modes is active.
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.padding(start = 1.dp)) {
-                modes.indices.forEach { i ->
-                    Box(
-                        Modifier.size(4.dp).clip(CircleShape)
-                            .alpha(if (i == index) 0.95f else 0.3f)
-                            .background(Color(0xFFB0B0B0))
-                    )
-                }
-            }
+        AnimatedContent(
+            targetState = index,
+            transitionSpec = {
+                (fadeIn(tween(140)) + scaleIn(tween(160), initialScale = 0.6f)) togetherWith
+                    (fadeOut(tween(100)) + scaleOut(tween(120), targetScale = 0.6f))
+            },
+            label = "hush-mode-$key",
+        ) { i ->
+            Icon(modes[i].icon, null, tint = Color.Gray, modifier = Modifier.size(22.dp))
         }
     }
 }
 
-/** The keyboard's "eye": swipe to pick text scan or QR scan, tap to open the scanner. */
+/** The keyboard's "eye": swipe to flip between text scan and QR scan, tap to open the scanner. */
 @Composable
 fun HushEyeSwitch() = HushModeSwitch(
     key = "eye",
@@ -149,7 +142,7 @@ fun HushEyeSwitch() = HushModeSwitch(
     ),
 )
 
-/** The keyboard's "ears": swipe to pick voice typing or song search, tap to start. */
+/** The keyboard's "ears": swipe to flip between voice typing and song search, tap to start. */
 @Composable
 fun HushEarsSwitch() {
     val context = LocalContext.current

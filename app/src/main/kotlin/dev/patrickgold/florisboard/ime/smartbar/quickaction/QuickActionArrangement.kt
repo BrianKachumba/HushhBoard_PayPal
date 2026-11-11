@@ -37,6 +37,7 @@ val QuickActionJsonConfig = Json(DefaultJsonConfig) {
             subclass(QuickAction.InsertKey::class, QuickAction.InsertKey.serializer())
             subclass(QuickAction.InsertText::class, QuickAction.InsertText.serializer())
             subclass(QuickAction.LaunchPay::class, QuickAction.LaunchPay.serializer())
+            subclass(QuickAction.LaunchShop::class, QuickAction.LaunchShop.serializer())
             defaultDeserializer { QuickAction.InsertKey.serializer() }
         }
     }
@@ -75,8 +76,14 @@ data class QuickActionArrangement(
             dynamicActions = dynamicActions.map { it.swapFloatingForPay() },
             hiddenActions = hiddenActions.map { it.swapFloatingForPay() },
         )
-        return if (QuickAction.LaunchPay in swapped) swapped
+        val withPay = if (QuickAction.LaunchPay in swapped) swapped
         else swapped.copy(dynamicActions = swapped.dynamicActions + QuickAction.LaunchPay)
+        if (QuickAction.LaunchShop in withPay) return withPay
+        // Shop sits right after Pay so both money keys are side by side.
+        val dyn = withPay.dynamicActions.toMutableList()
+        val at = dyn.indexOf(QuickAction.LaunchPay)
+        return if (at >= 0) { dyn.add(at + 1, QuickAction.LaunchShop); withPay.copy(dynamicActions = dyn) }
+        else withPay.copy(dynamicActions = dyn + QuickAction.LaunchShop)
     }
 
 
@@ -88,6 +95,7 @@ data class QuickActionArrangement(
                 QuickAction.InsertKey(TextKeyData.REDO),
                 QuickAction.InsertKey(TextKeyData.SETTINGS),
                 QuickAction.LaunchPay,
+                QuickAction.LaunchShop,
                 QuickAction.InsertKey(TextKeyData.TOGGLE_RESIZE_MODE),
                 QuickAction.InsertKey(TextKeyData.IME_UI_MODE_CLIPBOARD),
                 QuickAction.InsertKey(TextKeyData.IME_UI_MODE_MEDIA),

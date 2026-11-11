@@ -58,10 +58,14 @@ object Banks {
 
 data class PhoneLink(val id: String, val number: String) {
     val network: Network get() = Network.of(number)
+    /** All numbers on one network share one payee bar (one "Safaricom", one "Airtel"). */
+    val group: String get() = "net:" + network.name
 }
 
 data class BankLink(val id: String, val bankCode: String, val accountNumber: String, val holder: String) {
     val bank: Bank? get() = Banks.byCode(bankCode)
+    /** All accounts at one bank share one payee bar (one "KCB"). */
+    val group: String get() = "bank:" + bankCode
 }
 
 /** [token] is the server-sealed PayPal Vault reference. Useless without this phone's device token. */
@@ -78,7 +82,19 @@ data class MoneyAccounts(
     val banks: List<BankLink> = emptyList(),
     val paypal: PayPalLink? = null,
     val activity: List<MoneyActivity> = emptyList(),
+    /** Payee group ("net:SAFARICOM", "bank:kcb") -> id of its primary account. */
+    val primaries: Map<String, String> = emptyMap(),
 ) {
+    /** The primary of a group: the one the user chose, else the first one they added. */
+    fun primaryId(group: String): String? {
+        val ids = phones.filter { it.group == group }.map { it.id } + banks.filter { it.group == group }.map { it.id }
+        return primaries[group]?.takeIf { it in ids } ?: ids.firstOrNull()
+    }
+    fun isPrimary(id: String): Boolean {
+        val g = phones.firstOrNull { it.id == id }?.group ?: banks.firstOrNull { it.id == id }?.group ?: return false
+        return primaryId(g) == id
+    }
+
     val isEmpty: Boolean get() = phones.isEmpty() && banks.isEmpty() && paypal == null
 
     fun isOwnPhone(number: String): Boolean {
@@ -159,8 +175,14 @@ object MoneyStore {
         return null
     }
 
-    fun removePhone(ctx: Context, id: String) = update(ctx) { a -> a.copy(phones = a.phones.filterNot { it.id == id }) }
-    fun removeBank(ctx: Context, id: String) = update(ctx) { a -> a.copy(banks = a.banks.filterNot { it.id == id }) }
+    fun removePhone(ctx: Context, id: String) = update(ctx) { a -> a.copy(phones = a.phones.filterNot { it.id == id }, primaries = a.primaries.filterValues { it != id }) }
+    fun removeBank(ctx: Context, id: String) = update(ctx) { a -> a.copy(banks = a.banks.filterNot { it.id == id }, primaries = a.primaries.filterValues { it != id }) }
+
+    /** Makes this phone number / bank account the default of its payee bar. */
+    fun setPrimary(ctx: Context, id: String) = update(ctx) { a ->
+        val g = a.phones.firstOrNull { it.id == id }?.group ?: a.banks.firstOrNull { it.id == id }?.group
+        if (g == null) a else a.copy(primaries = a.primaries + (g to id))
+    }
     fun setPayPal(ctx: Context, link: PayPalLink?) = update(ctx) { it.copy(paypal = link) }
 
     fun recordActivity(ctx: Context, item: MoneyActivity) = update(ctx) { a ->
@@ -179,6 +201,7 @@ object MoneyStore {
             JSONObject().put("id", it.id).put("bank", it.bankCode).put("account", it.accountNumber).put("holder", it.holder)
         }))
         a.paypal?.let { put("paypal", JSONObject().put("email", it.email).put("name", it.name).put("token", it.token)) }
+        put("primaries", JSONObject().apply { a.primaries.forEach { (k, v) -> put(k, v) } })
         put("activity", JSONArray(a.activity.map {
             JSONObject().put("id", it.id).put("kind", it.kind).put("status", it.status).put("amount", it.amount)
                 .put("currency", it.currency).put("counterparty", it.counterparty).put("note", it.note).put("at", it.at)
@@ -195,6 +218,7 @@ object MoneyStore {
                 banks = objs("banks").map { BankLink(it.getString("id"), it.getString("bank"), it.getString("account"), it.optString("holder")) },
                 paypal = o.optJSONObject("paypal")?.let { PayPalLink(it.optString("email"), it.optString("name"), it.optString("token")) }
                     ?.takeIf { it.token.isNotBlank() },
+                primaries = o.optJSONObject("primaries")?.let { p -> p.keys().asSequence().associateWith { p.getString(it) } } ?: emptyMap(),
                 activity = objs("activity").map {
                     MoneyActivity(
                         it.optString("id"), it.optString("kind"), it.optString("status"), it.optDouble("amount", 0.0),

@@ -216,6 +216,17 @@
             android:launchMode="singleTask"
             android:windowSoftInputMode="stateAlwaysHidden" />
 
+        <!-- Shop: product search sheet over the current app (keyboard bag key / shopping suggestion) -->
+        <activity
+            android:name="dev.patrickgold.florisboard.money.ShopActivity"
+            android:process=":hushh"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+
         <!-- PayPal: PayPal's pages redirect back here after "Connect PayPal" -->
         <activity
             android:name="dev.patrickgold.florisboard.money.PayPalReturnActivity"
