@@ -7,7 +7,7 @@ HushhBoard × PayPal: pay from your keyboard, locally and internationally
 A Kenyan keyboard that turns any chat into a payment: M-PESA, banks and PayPal in one Pay button, with on-device AI that reads "send me $40 on PayPal" and fills it in.
 
 ## Inspiration
-Kenya leads the world in mobile money: 54 million active mobile-money accounts and M-PESA in almost every pocket. But international money still lives somewhere else. A Kenyan freelancer agrees a price in WhatsApp, then jumps between PayPal, the M-PESA app, the bank app and the USSD menu, and retypes numbers each time. We already built a keyboard that pays with M-PESA from any chat. PayPal was the missing piece that makes it local *and* international.
+Kenya leads the world in mobile money: 54 million active mobile-money accounts and M-PESA in almost every pocket. But international money still lives somewhere else. A Kenyan freelancer agrees a price in WhatsApp, then jumps between PayPal, the M-PESA app, the bank app and the USSD menu, and retypes numbers each time. So we built a keyboard that pays with M-PESA from any chat, and made PayPal part of it so it works locally *and* internationally.
 
 ## What it does
 - **Connect once.** During setup you add your Safaricom or Airtel number, any number of bank accounts, and your PayPal. PayPal's own login handles your email, password and 2FA. We keep only a PayPal Vault payment token, so you never log in again and nobody stores a password.
@@ -22,7 +22,7 @@ Kenya leads the world in mobile money: 54 million active mobile-money accounts a
 - **Get paid from abroad.** "Request via PayPal" creates a pay link for any chat. When the client pays, HushhBoard shows Paid ✓.
 
 ## Built during the hackathon (1 Oct to 12 Nov 2026)
-HushhBoard started as our own Android keyboard (a fork of the open-source FlorisBoard, Apache 2.0) with M-PESA USSD and STK payments from the toolbar. During the submission period we built:
+The whole of HushhBoard was built during the submission period, on top of the open-source FlorisBoard keyboard (Apache 2.0). That includes the keyboard work (Kenyan English, Swahili and Sheng word engine, Eye and Ears toolbar keys, M-PESA USSD and STK payments from the toolbar) and everything below:
 - The whole PayPal layer: Vault v3 connect with no stored passwords, Orders v2 payments from the saved PayPal, PayPal pay-link requests with capture, and the stateless Render server with sealed device-bound links (`server/`).
 - The `money` module: accounts store with a primary account per provider, PayRouter (withdrawal, credit or payment; real payment, hand-off or "ready for API"), on-device AI fill, hand-off logging.
 - A new Pay screen (one bar per provider with real logos and a dropdown, PayPal only where supported, steady number pad, silent fresh-only smart fill) and a shared Add account sheet.
