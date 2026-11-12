@@ -761,9 +761,31 @@ fun UssdTransactionScreen(
                             onFocused = { active = Field.BANK_NAME },
                             onImeAction = { advance(allowPay = false) }
                         )
+                        // Bank suggestions: type a letter or two and tap the bank - no free-typed bank names.
+                        val typedBank = data["bankName"].orEmpty()
+                        val pickedBank = Banks.all.firstOrNull { it.name.equals(typedBank, true) }
+                        if (active == Field.BANK_NAME || (typedBank.isNotBlank() && pickedBank == null)) {
+                            val saved = money.banks.mapNotNull { it.bank }.distinct()
+                            val q = typedBank.trim().lowercase()
+                            val matches = (saved + Banks.all).distinct().filter { b ->
+                                q.isEmpty() || b.name.lowercase().split(" ", "&", "-").any { it.startsWith(q) } ||
+                                    b.name.lowercase().contains(q) || Brands.bank(b.code).text.lowercase().startsWith(q)
+                            }
+                            SuggestionRow(matches.map { b -> Suggestion(b.name, if (b in saved) "Yours" else null, Brands.bank(b.code)) }) { name ->
+                                onDataChange(Field.BANK_NAME.key, name)
+                                active = Field.BANK_ACCOUNT
+                            }
+                        }
                         HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
                         NumericFieldRow("Account number", data["bankAccount"] ?: "", "Account number",
                             active == Field.BANK_ACCOUNT, { active = Field.BANK_ACCOUNT }, null)
+                        // Your own accounts at that bank, one tap to fill; typing any other number still works.
+                        val mine = pickedBank?.let { b -> money.banks.filter { it.bankCode == b.code } }.orEmpty()
+                        if (mine.isNotEmpty() && data["bankAccount"].orEmpty() !in mine.map { it.accountNumber }) {
+                            SuggestionRow(mine.map { Suggestion(maskAccount(it.accountNumber), it.holder.ifBlank { "Your account" }, Brands.bank(it.bankCode), it.accountNumber) }) { n ->
+                                onDataChange(Field.BANK_ACCOUNT.key, n)
+                            }
+                        }
                     }
                     else -> {}
                 }
@@ -1061,6 +1083,34 @@ private fun TextFieldRow(
                 }
             }
         )
+    }
+}
+
+private data class Suggestion(val label: String, val sub: String?, val mark: Mark, val value: String = label)
+
+/** A row of tappable suggestions under a field (banks, your own accounts). */
+@Composable
+private fun SuggestionRow(items: List<Suggestion>, onPick: (String) -> Unit) {
+    if (items.isEmpty()) return
+    androidx.compose.foundation.lazy.LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(items.size) { i ->
+            val it = items[i]
+            Row(
+                Modifier.clip(RoundedCornerShape(12.dp)).background(CardBg).border(1.dp, Divider, RoundedCornerShape(12.dp))
+                    .clickable { onPick(it.value) }.padding(start = 6.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BrandLogo(it.mark, 24.dp)
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(it.label, color = TextMain, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    it.sub?.let { sub -> Text(sub, color = Brand, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
+                }
+            }
+        }
     }
 }
 

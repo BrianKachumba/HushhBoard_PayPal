@@ -22,6 +22,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -148,7 +151,7 @@ fun MoneyHomeScreen() {
         }
         Spacer(Modifier.height(18.dp))
 
-        HeroCard(groups)
+        WalletCard(groups, accounts)
         Spacer(Modifier.height(22.dp))
 
         // Quick actions
@@ -199,40 +202,151 @@ fun MoneyHomeScreen() {
     }
 }
 
-/** The "card" at the top: what's ready on the keyboard, with the logos of everything connected. */
+/** One account on the Wallet card's stack. */
+private data class StackItem(val group: PayeeGroup, val option: PayeeOption)
+
+/**
+ * The Wallet card: the account on top of the stack (bottom-left) is the one shown. Swipe the card left or right,
+ * or tap a tile, to bring another account to the top. The eye hides or shows private details.
+ * Balances are only shown where we can truly know them: PayPal shows what moved through HushhBoard; banks and
+ * mobile money say their balance arrives with the provider's API.
+ */
 @Composable
-private fun HeroCard(groups: List<PayeeGroup>) {
+private fun WalletCard(groups: List<PayeeGroup>, accounts: MoneyAccounts) {
+    val ctx = LocalContext.current
+    val items = remember(groups) {
+        val paypalFirst = groups.sortedBy { if (it.kind == SourceKind.PAYPAL) 0 else 1 }
+        paypalFirst.flatMap { g -> g.options.sortedByDescending { it.id == g.primaryId }.map { StackItem(g, it) } }
+    }
+    var top by remember(items.size) { mutableStateOf(0) }
+    var hidden by remember { mutableStateOf(true) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val shape = RoundedCornerShape(26.dp)
+
+    if (items.isEmpty()) {
+        Box(
+            Modifier.fillMaxWidth().height(190.dp).clip(shape)
+                .background(Brush.linearGradient(listOf(Color(0xFF1B1F24), Color(0xFF0E1013)))).border(1.dp, CardLine, shape).padding(22.dp),
+        ) {
+            Column {
+                Text("ON YOUR KEYBOARD", color = HushhTheme.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Nothing connected yet", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("Add M-PESA, a bank or PayPal to pay from any chat.", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
+            }
+        }
+        return
+    }
+
+    val cur = items[top.coerceIn(0, items.lastIndex)]
+    val isPayPal = cur.group.kind == SourceKind.PAYPAL
+    fun step(d: Int) { top = (top + d + items.size) % items.size; haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
+
     Box(
-        Modifier.fillMaxWidth().height(156.dp).clip(RoundedCornerShape(26.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF0E3B2A), Color(0xFF0A1F1A), Color(0xFF0B1220))))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(26.dp))
+        Modifier.fillMaxWidth().height(210.dp).clip(shape)
+            .background(
+                if (isPayPal) Brush.linearGradient(listOf(Color(0xFF0B1F4D), Color(0xFF081430), Color(0xFF0B0F1A)))
+                else Brush.linearGradient(listOf(Color(0xFF1B1F24), Color(0xFF111418), Color(0xFF0B0D10)))
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.08f), shape)
+            .pointerInput(items.size) {
+                var dx = 0f
+                detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragEnd = {
+                    if (kotlin.math.abs(dx) > 48.dp.toPx()) step(if (dx < 0) 1 else -1)
+                }) { _, d -> dx += d }
+            }
             .padding(20.dp),
     ) {
-        Column(Modifier.fillMaxSize()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Keyboard, null, tint = HushhTheme.Accent, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("ON YOUR KEYBOARD", color = HushhTheme.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                if (groups.isEmpty()) "Nothing connected yet" else "Pay from any chat",
-                color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold,
-            )
-            Text(
-                if (groups.isEmpty()) "Add an account to start" else "Tap Pay on the toolbar - ${groups.joinToString(", ") { it.name }}",
-                color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.weight(1f))
-            // Overlapping logos
-            Row {
-                groups.take(6).forEachIndexed { i, g ->
-                    Box(Modifier.offset(x = (-10 * i).dp).border(2.dp, Color(0xFF0B1A16), RoundedCornerShape(12.dp))) { BrandLogo(g.logo, 34.dp) }
+        androidx.compose.animation.AnimatedContent(
+            targetState = cur, label = "wallet-card",
+            transitionSpec = { (androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInHorizontally { it / 6 }) togetherWith androidx.compose.animation.fadeOut() },
+        ) { it2 ->
+            val g = it2.group; val o = it2.option
+            Column(Modifier.fillMaxSize()) {
+                // Header: provider + eye
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (g.kind == SourceKind.PAYPAL) BrandLogo(Brands.PAYPAL, 44.dp)
+                    else BrandLogo(if (g.kind == SourceKind.BANK) Brands.BANK else Brands.MOBILE, 36.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(g.name, color = Color.White, fontSize = if (g.kind == SourceKind.PAYPAL) 22.sp else 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text(
+                            when (g.kind) { SourceKind.PAYPAL -> "Connected · sandbox"; SourceKind.BANK -> "Bank account"; else -> "Mobile money" } +
+                                if (o.id == g.primaryId && g.options.size > 1) " · Primary" else "",
+                            color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp,
+                        )
+                    }
+                    Box(
+                        Modifier.size(36.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.08f)).clickable { hidden = !hidden },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(if (hidden) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (hidden) "Show details" else "Hide details", tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
                 }
-                if (groups.size > 6) Text("+${groups.size - 6}", color = Color.White, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterVertically))
+                Spacer(Modifier.height(14.dp))
+                // Account line, like a card number
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (hidden) maskForCard(g.kind, o.value) else if (g.kind == SourceKind.BANK) o.value.chunked(4).joinToString(" ") else o.label,
+                        color = Color.White, fontSize = if (g.kind == SourceKind.PAYPAL) 16.sp else 20.sp, fontWeight = FontWeight.SemiBold,
+                        letterSpacing = if (g.kind == SourceKind.PAYPAL) 0.sp else 1.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (!hidden) {
+                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Rounded.ContentCopy, "Copy", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(16.dp).clickable {
+                            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("account", o.value))
+                            Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
+                        })
+                    }
+                }
+                val holder = when (g.kind) { SourceKind.PAYPAL -> accounts.paypal?.name.orEmpty(); else -> o.holder }
+                if (holder.isNotBlank()) Text(if (hidden) holder.take(1) + "•••" else holder, color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+                Spacer(Modifier.weight(1f))
+                // Bottom: stack (left) + balance (right)
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Row(Modifier.weight(1f)) {
+                        val shown = (0 until minOf(items.size, 5)).map { (top + it) % items.size }.reversed()
+                        shown.forEachIndexed { i, idx ->
+                            val isTop = idx == top
+                            Box(
+                                Modifier.offset(x = (-12 * i).dp)
+                                    .border(if (isTop) 2.dp else 1.5.dp, if (isTop) Color.White else Color(0xFF0B0F1A), RoundedCornerShape(11.dp))
+                                    .clickable { top = idx }
+                            ) { BrandLogo(items[idx].group.logo, if (isTop) 34.dp else 28.dp) }
+                        }
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (g.kind == SourceKind.PAYPAL) {
+                            val (sent, got) = paypalTotals(accounts.activity)
+                            Text("Through HushhBoard", color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
+                            Text(if (hidden) "USD ••••" else "↑ $${"%,.2f".format(sent)}  ↓ $${"%,.2f".format(got)}", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        } else {
+                            Text("Balance", color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
+                            Text(if (hidden) "KSh ••••" else "With ${g.name}'s API", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
             }
         }
     }
+    if (items.size > 1) Text(
+        "Swipe the card to switch accounts", color = Muted.copy(alpha = 0.7f), fontSize = 11.sp,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+    )
+}
+
+private fun maskForCard(kind: SourceKind, v: String): String = when (kind) {
+    SourceKind.PAYPAL -> v.substringBefore('@').take(1) + "•••@" + v.substringAfter('@', "")
+    SourceKind.BANK -> "•••• •••• " + v.takeLast(4)
+    else -> if (v.length >= 10) v.take(2) + "•• ••• " + v.takeLast(3) else "••••"
+}
+
+/** USD sent and received through HushhBoard this month (completed only) - real numbers from PayPal orders. */
+private fun paypalTotals(activity: List<MoneyActivity>): Pair<Double, Double> {
+    val cal = java.util.Calendar.getInstance().apply { set(java.util.Calendar.DAY_OF_MONTH, 1); set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0) }
+    val month = activity.filter { it.at >= cal.timeInMillis && it.status == "COMPLETED" && it.currency == "USD" }
+    return month.filter { it.kind == "send" }.sumOf { it.amount } to month.filter { it.kind == "request" }.sumOf { it.amount }
 }
 
 @Composable
