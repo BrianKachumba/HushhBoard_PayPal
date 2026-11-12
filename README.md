@@ -1,5 +1,8 @@
 # HushhBoard × PayPal: pay from your keyboard, locally and internationally
 
+**Demo video:** https://youtu.be/8Pjxr6g97b4 · **Download:** see [Releases](https://github.com/BrianKachumba/HushhBoard_PayPal/releases) · Judge sandbox logins are in the Devpost testing instructions.
+
+
 **PayPal AI Hackathon 2026 submission.** HushhBoard is an Android keyboard built in Kenya, where mobile money (M-PESA) is how people pay. This build adds PayPal next to M-PESA, Airtel Money and banks. Kenyans can pay locally and internationally from the keyboard they already type on, without switching apps.
 
 > Kenya leads the world in mobile money. HushhBoard brings PayPal into that habit, inside every chat.

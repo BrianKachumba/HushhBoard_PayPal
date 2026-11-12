@@ -59,6 +59,8 @@ Partner access: PayPal payouts to M-PESA, Safaricom Daraja and M-PESA Global, an
 kotlin, jetpack-compose, android, paypal-rest-api, paypal-vault, paypal-orders-v2, ml-kit, channel3, apimatic, node.js, express, render, github-actions
 
 ## Testing instructions (for judges)
+Demo video: https://youtu.be/8Pjxr6g97b4
+
 1. Install the APK from the release link (or the latest GitHub Actions run, artifact `app-debug.apk`).
 2. Setup: tap **Turn on** and switch HushhBoard on, tap **Choose HushhBoard**, tap **Allow**.
 3. **Connect your money**: add a Safaricom number such as 0712345678 and a bank, then add PayPal and log in with this sandbox **personal** account:
