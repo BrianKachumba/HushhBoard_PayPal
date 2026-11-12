@@ -35,12 +35,9 @@ or product names (Section 6).
 - "HushhBoard" and the HushhBoard icon (the H U / S H grid) are trademarks of Brian
   Kachumba and are not licensed under the Apache License. Forks must use a different name
   and icon.
-- The provider logos in app/src/main/res/drawable-nodpi/logo_*.png are trademarks of their
-  owners: PayPal (PayPal, Inc.), M-PESA (Safaricom PLC), Airtel Money (Airtel Africa),
-  T-Kash (Telkom Kenya), Equity Bank, KCB Bank, Co-operative Bank of Kenya, Absa Bank
-  Kenya, NCBA Bank, Stanbic Bank Kenya, Standard Chartered, I&M Bank, Diamond Trust Bank
-  and Family Bank. They are used only to identify each provider to the user, are not
-  licensed under the Apache License, and do not imply endorsement. Anyone reusing this
-  code must replace them with their own images unless they have the owners' permission.
+- The PayPal logo (app/src/main/res/drawable-nodpi/logo_paypal.png) is a trademark of PayPal,
+  Inc., used only to identify PayPal as a payment option (PayPal is the hackathon sponsor). It
+  is not licensed under the Apache License. Banks and mobile-money providers are shown only by
+  their names, coloured initials and generic phone / bank icons; no other logos are included.
 - "FlorisBoard" is the name of the upstream project and is used here only to describe
   where the code comes from.

@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -37,46 +38,56 @@ import kotlinx.coroutines.launch
 
 // ───────────────────────── Brands ─────────────────────────
 
-/** Official app-icon artwork of each provider, bundled in res/drawable-nodpi. */
+/**
+ * How a provider is drawn. Only PayPal (the sponsor) uses its real logo; every bank and mobile-money provider is a
+ * coloured tile with its initials, so the app ships no third-party trademarks. [icon] tiles are the two categories.
+ */
+data class Mark(val text: String, val color: Color, @DrawableRes val res: Int? = null, val icon: ImageVector? = null)
+
 object Brands {
-    @DrawableRes
-    fun bankLogo(code: String): Int? = when (code) {
-        "equity" -> R.drawable.logo_equity
-        "kcb" -> R.drawable.logo_kcb
-        "coop" -> R.drawable.logo_coop
-        "absa" -> R.drawable.logo_absa
-        "ncba" -> R.drawable.logo_ncba
-        "stanbic" -> R.drawable.logo_stanbic
-        "scb" -> R.drawable.logo_scb
-        "im" -> R.drawable.logo_im
-        "dtb" -> R.drawable.logo_dtb
-        "family" -> R.drawable.logo_family
-        else -> null
+    private val palette = mapOf(
+        "equity" to Color(0xFF8E3B46), "kcb" to Color(0xFF2E7D32), "coop" to Color(0xFF1565C0), "absa" to Color(0xFFAD1457),
+        "ncba" to Color(0xFF37474F), "stanbic" to Color(0xFF283593), "scb" to Color(0xFF00897B), "im" to Color(0xFF6A1B9A),
+        "dtb" to Color(0xFFEF6C00), "family" to Color(0xFF4E342E),
+    )
+    private val initials = mapOf(
+        "equity" to "EQ", "kcb" to "KC", "coop" to "CO", "absa" to "AB", "ncba" to "NC", "stanbic" to "SB",
+        "scb" to "SC", "im" to "IM", "dtb" to "DT", "family" to "FB",
+    )
+
+    fun bank(code: String): Mark = Mark(initials[code] ?: code.take(2).uppercase(), palette[code] ?: Color(0xFF546E7A))
+
+    fun network(n: Network): Mark = when (n) {
+        Network.SAFARICOM -> Mark("MP", Color(0xFF388E3C))
+        Network.AIRTEL -> Mark("AM", Color(0xFFC62828))
+        Network.TELKOM -> Mark("TK", Color(0xFF0277BD))
+        Network.OTHER -> Mark("MM", Color(0xFF607D8B))
     }
 
-    @DrawableRes
-    fun networkLogo(n: Network): Int? = when (n) {
-        Network.SAFARICOM -> R.drawable.logo_mpesa
-        Network.AIRTEL -> R.drawable.logo_airtel
-        Network.TELKOM -> R.drawable.logo_telkom
-        Network.OTHER -> null
-    }
-
-    val PAYPAL = R.drawable.logo_paypal
+    val PAYPAL = Mark("PP", Color(0xFF003087), res = R.drawable.logo_paypal)
+    val MOBILE = Mark("", Color(0xFF2E7D5B), icon = Icons.Rounded.Phone)
+    val BANK = Mark("", Color(0xFF455A64), icon = Icons.Rounded.AccountBalance)
 }
 
-/** A brand logo in a rounded square (falls back to a neutral icon when we have no artwork). */
+/** Category icon for the right-hand side of a bar: phone = mobile money, building = bank. */
+fun kindIcon(kind: SourceKind): ImageVector? = when (kind) {
+    SourceKind.MPESA, SourceKind.AIRTEL -> Icons.Rounded.Phone
+    SourceKind.BANK -> Icons.Rounded.AccountBalance
+    else -> null
+}
+
+/** A provider tile in a rounded square: PayPal's logo, a category icon, or coloured initials. */
 @Composable
-fun BrandLogo(@DrawableRes res: Int?, size: Dp = 36.dp, fallback: androidx.compose.ui.graphics.vector.ImageVector = Icons.Rounded.AccountBalance) {
+fun BrandLogo(mark: Mark, size: Dp = 36.dp) {
     val shape = RoundedCornerShape(size * 0.28f)
-    if (res != null) {
-        Image(
-            painterResource(res), null, contentScale = ContentScale.Crop,
+    when {
+        mark.res != null -> Image(
+            painterResource(mark.res), null, contentScale = ContentScale.Crop,
             modifier = Modifier.size(size).clip(shape).border(0.5.dp, Color.Black.copy(alpha = 0.08f), shape),
         )
-    } else {
-        Box(Modifier.size(size).clip(shape).background(Color(0xFF607D8B)), contentAlignment = Alignment.Center) {
-            Icon(fallback, null, tint = Color.White, modifier = Modifier.size(size * 0.55f))
+        else -> Box(Modifier.size(size).clip(shape).background(mark.color), contentAlignment = Alignment.Center) {
+            if (mark.icon != null) Icon(mark.icon, null, tint = Color.White, modifier = Modifier.size(size * 0.55f))
+            else Text(mark.text, color = Color.White, fontWeight = FontWeight.Bold, fontSize = (size.value * (if (mark.text.length > 2) 0.30f else 0.36f)).sp, maxLines = 1)
         }
     }
 }
@@ -91,7 +102,7 @@ data class PayeeGroup(
     val key: String,
     val kind: SourceKind,
     val name: String,
-    @DrawableRes val logo: Int?,
+    val logo: Mark,
     val options: List<PayeeOption>,
     val primaryId: String,
 ) {
@@ -111,7 +122,7 @@ object Payees {
                     key = group,
                     kind = if (net == Network.AIRTEL) SourceKind.AIRTEL else SourceKind.MPESA,
                     name = when (net) { Network.SAFARICOM -> "M-PESA"; Network.AIRTEL -> "Airtel Money"; Network.TELKOM -> "T-Kash"; Network.OTHER -> "Mobile money" },
-                    logo = Brands.networkLogo(net),
+                    logo = Brands.network(net),
                     options = phones.sortedByDescending { it.id == primary }.map { PayeeOption(it.id, it.number, formatPhone(it.number)) },
                     primaryId = primary,
                 )
@@ -123,7 +134,7 @@ object Payees {
             add(
                 PayeeGroup(
                     key = group, kind = SourceKind.BANK, name = accts.first().bank?.name ?: "Bank",
-                    logo = Brands.bankLogo(code),
+                    logo = Brands.bank(code),
                     options = accts.sortedByDescending { it.id == primary }.map { PayeeOption(it.id, it.accountNumber, maskAccount(it.accountNumber), it.holder) },
                     primaryId = primary,
                 )
@@ -201,9 +212,9 @@ fun AddAccountSheet(palette: SheetPalette, onDismiss: () -> Unit, onAdded: (Stri
                 Column {
                     when {
                         k == null -> {
-                            ChoiceRow(palette, Brands.networkLogo(Network.SAFARICOM), "Mobile money", "M-PESA, Airtel Money or T-Kash number") { kind = AddKind.PHONE }
+                            ChoiceRow(palette, Brands.MOBILE, "Mobile money", "M-PESA, Airtel Money or T-Kash number") { kind = AddKind.PHONE }
                             Spacer(Modifier.height(10.dp))
-                            ChoiceRow(palette, Brands.bankLogo("kcb"), "Bank account", "Equity, KCB, Co-op, Absa and more") { kind = AddKind.BANK }
+                            ChoiceRow(palette, Brands.BANK, "Bank account", "Equity, KCB, Co-op, Absa and more") { kind = AddKind.BANK }
                             Spacer(Modifier.height(10.dp))
                             if (accounts.paypal == null) {
                                 ChoiceRow(palette, Brands.PAYPAL, "PayPal", "Log in on PayPal's own page - we never see your password") {
@@ -216,7 +227,7 @@ fun AddAccountSheet(palette: SheetPalette, onDismiss: () -> Unit, onAdded: (Stri
                         k == AddKind.PHONE -> {
                             val net = number.filter { it.isDigit() }.takeIf { it.length >= 4 }?.let { Network.of(it.let { d -> if (d.startsWith("254")) "0" + d.drop(3) else d }) }
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                BrandLogo(net?.let { Brands.networkLogo(it) }, 44.dp, Icons.Rounded.PhoneAndroid)
+                                BrandLogo(net?.let { Brands.network(it) } ?: Brands.MOBILE, 44.dp)
                                 Spacer(Modifier.width(12.dp))
                                 SheetField(palette, number, { number = it.filter { c -> c.isDigit() || c == '+' }.take(13); error = null }, "07XX XXX XXX", KeyboardType.Phone, focus, Modifier.weight(1f)) {
                                     error = MoneyStore.addPhone(ctx, number); if (error == null) { onAdded("Number added"); close() }
@@ -241,7 +252,7 @@ fun AddAccountSheet(palette: SheetPalette, onDismiss: () -> Unit, onAdded: (Stri
                                                 Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(palette.surface).clickable { bank = bk }.padding(vertical = 12.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally,
                                             ) {
-                                                BrandLogo(Brands.bankLogo(bk.code), 40.dp)
+                                                BrandLogo(Brands.bank(bk.code), 40.dp)
                                                 Spacer(Modifier.height(6.dp))
                                                 Text(bk.name.removeSuffix(" Bank").removeSuffix(" Kenya"), color = palette.text, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             }
@@ -253,7 +264,7 @@ fun AddAccountSheet(palette: SheetPalette, onDismiss: () -> Unit, onAdded: (Stri
                         }
                         else -> {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                BrandLogo(Brands.bankLogo(b.code), 44.dp)
+                                BrandLogo(Brands.bank(b.code), 44.dp)
                                 Spacer(Modifier.width(12.dp))
                                 SheetField(palette, number, { number = it.filter { c -> c.isLetterOrDigit() }.take(20); error = null }, "Account number", KeyboardType.Number, focus, Modifier.weight(1f), ImeAction.Next) {}
                             }
@@ -276,7 +287,7 @@ fun AddAccountSheet(palette: SheetPalette, onDismiss: () -> Unit, onAdded: (Stri
 }
 
 @Composable
-private fun ChoiceRow(p: SheetPalette, @DrawableRes logo: Int?, title: String, sub: String, enabled: Boolean = true, onClick: () -> Unit) {
+private fun ChoiceRow(p: SheetPalette, logo: Mark, title: String, sub: String, enabled: Boolean = true, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.surface).clickable(enabled = enabled, onClick = onClick).padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,

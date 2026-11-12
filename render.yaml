@@ -23,5 +23,3 @@ services:
         sync: false
       - key: LINK_SECRET
         generateValue: true
-      - key: FX_KES_PER_USD
-        value: "129.96"

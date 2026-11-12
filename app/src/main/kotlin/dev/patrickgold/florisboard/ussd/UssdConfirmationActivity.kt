@@ -12,6 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -24,6 +25,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -155,6 +158,9 @@ class UssdConfirmationActivity : ComponentActivity() {
     private val outcomeState = MutableStateFlow<PayOutcome?>(null)
     private val smartState = MutableStateFlow<SmartFill?>(null)
     private val preferPayPalState = MutableStateFlow(false)
+    /** The amount's currency on screen. KSh by default; any vertical swipe on the amount switches to USD and back. */
+    private val currencyState = MutableStateFlow("KES")
+    private val fxState = MutableStateFlow(MoneyApi.lastFx)
 
     private val cameraEditLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -200,6 +206,7 @@ class UssdConfirmationActivity : ComponentActivity() {
         MoneyStore.reload(this)
         lifecycleScope.launch { MoneyApi.syncPayPal(this@UssdConfirmationActivity) }
         lifecycleScope.launch { runCatching { MoneyAi.warmUp(this@UssdConfirmationActivity) } }
+        lifecycleScope.launch { (MoneyApi.fx(this@UssdConfirmationActivity) as? ApiResult.Ok)?.let { fxState.value = it.value } }
 
         setContent {
             val type by transactionTypeState.collectAsState()
@@ -210,6 +217,8 @@ class UssdConfirmationActivity : ComponentActivity() {
             val outcome by outcomeState.collectAsState()
             val smart by smartState.collectAsState()
             val preferPayPal by preferPayPalState.collectAsState()
+            val currency by currencyState.collectAsState()
+            val fx by fxState.collectAsState()
 
             UssdTransactionScreen(
                 type = type,
@@ -219,6 +228,9 @@ class UssdConfirmationActivity : ComponentActivity() {
                 destination = destination,
                 smart = smart,
                 preferPayPal = preferPayPal,
+                currency = currency,
+                fx = fx,
+                onToggleCurrency = { toggleCurrency() },
                 onDestinationChange = { bankDestinationState.value = it },
                 onSmartFill = { },
                 onApplySmart = { markClipOffered(); applySmart(it) },
@@ -240,14 +252,14 @@ class UssdConfirmationActivity : ComponentActivity() {
                     )
                 },
                 onBack = { finish() },
-                onConfirm = { account -> handlePay(type, data, account) }
+                onConfirm = { account -> handlePay(type, data.withAmountFor(account.kind), account) }
             )
 
             outcome?.let { o ->
                 PayOutcomeDialog(
                     outcome = o,
                     onDismiss = { if (o !is PayOutcome.Sending) outcomeState.value = null },
-                    onOpenApp = { app -> handOff(app, (o as? PayOutcome.Route)?.route, data); outcomeState.value = null },
+                    onOpenApp = { app -> handOff(app, (o as? PayOutcome.Route)?.route, lastPayData ?: data); outcomeState.value = null },
                     onSendPayPal = { email, amount -> sendPayPal(email, amount, data["note"].orEmpty()) },
                     onDone = { outcomeState.value = null; finish() },
                 )
@@ -318,6 +330,7 @@ class UssdConfirmationActivity : ComponentActivity() {
         bankDestinationState.value = fill.destination
         transactionDataState.value = transactionDataState.value.toMutableMap().apply { putAll(fill.fields) }
         preferPayPalState.value = fill.preferPayPal && MoneyStore.accounts.value.paypal != null
+        currencyState.value = if (fill.currency.equals("USD", true)) "USD" else "KES"
         smartState.value = null
         fill.shopQuery?.let { ShopActivity.launch(this, it, fromKeyboard = true); finish(); return }
     }
@@ -344,8 +357,40 @@ class UssdConfirmationActivity : ComponentActivity() {
      */
     private var lastSource: SourceKind? = null
 
+    private var lastPayData: Map<String, String>? = null
+
+    /** Swipe on the amount: KSh <-> USD, converting what's typed with the live rate (never a guessed one). */
+    private fun toggleCurrency() {
+        val fx = fxState.value ?: run {
+            Toast.makeText(this, "Getting today's rate…", Toast.LENGTH_SHORT).show()
+            lifecycleScope.launch { (MoneyApi.fx(this@UssdConfirmationActivity) as? ApiResult.Ok)?.let { fxState.value = it.value } }
+            return
+        }
+        val next = if (currencyState.value == "KES") "USD" else "KES"
+        val amt = transactionDataState.value["amount"]?.toDoubleOrNull()
+        if (amt != null && amt > 0) {
+            val converted = if (next == "USD") amt / fx.rate else amt * fx.rate
+            val text = if (next == "USD") "%.2f".format(java.util.Locale.US, converted) else "%.0f".format(java.util.Locale.US, converted)
+            transactionDataState.value = transactionDataState.value + ("amount" to text)
+        }
+        currencyState.value = next
+        window.decorView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+    }
+
+    /** The amount in the currency the chosen account pays in: PayPal pays USD, M-PESA / Airtel / banks pay KSh. */
+    private fun Map<String, String>.withAmountFor(kind: SourceKind): Map<String, String> {
+        val amt = this["amount"]?.toDoubleOrNull() ?: return this
+        val want = if (kind == SourceKind.PAYPAL) "USD" else "KES"
+        val have = currencyState.value
+        val rate = fxState.value?.rate
+        if (want == have || rate == null) return this
+        val v = if (want == "USD") amt / rate else amt * rate
+        return this + ("amount" to if (want == "USD") "%.2f".format(java.util.Locale.US, v) else "%.0f".format(java.util.Locale.US, v))
+    }
+
     private fun handlePay(type: TransactionType, data: Map<String, String>, account: PayAccount) {
         lastSource = account.kind
+        lastPayData = data
         val route = PayRouter.route(account.kind, type.toTab(), data, bankDestinationState.value, MoneyStore.accounts.value)
         when (route) {
             is PayRoute.Local -> handleLocalPay(route.tab.toType(), route.fields, account)
@@ -442,7 +487,6 @@ private fun fieldsFor(type: TransactionType, dest: BankDestination): List<Field>
 }
 
 private val EMAIL_RE = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$")
-private const val KES_PER_USD = 129.96
 
 private const val KEY_BACKSPACE = "BACKSPACE"
 
@@ -485,6 +529,9 @@ fun UssdTransactionScreen(
     destination: BankDestination,
     smart: SmartFill?,
     preferPayPal: Boolean,
+    currency: String,
+    fx: FxRate?,
+    onToggleCurrency: () -> Unit,
     onDestinationChange: (BankDestination) -> Unit,
     onSmartFill: (String?) -> Unit,
     onApplySmart: (SmartFill) -> Unit,
@@ -522,7 +569,8 @@ fun UssdTransactionScreen(
     val fields = fieldsFor(type, destination)
     val textRequesters = remember { mapOf(Field.ACCOUNT to FocusRequester(), Field.BANK_NAME to FocusRequester(), Field.PP_EMAIL to FocusRequester()) }
     val payingWithPayPal = selected?.kind == SourceKind.PAYPAL
-    val currencyLabel = if (payingWithPayPal) "USD" else "KSh"
+    val isUsd = currency == "USD"
+    val currencyLabel = if (isUsd) "USD" else "KSh"
 
     val formValid = (data["amount"]?.toDoubleOrNull() ?: 0.0) > 0 && when (type) {
         TransactionType.SEND_MONEY -> (data["phone"] ?: "").length >= 10
@@ -619,11 +667,29 @@ fun UssdTransactionScreen(
 
             // Amount - big, tap to edit with the number pad (no label needed)
             Row(
-                Modifier.fillMaxWidth().noRippleClickable { active = Field.AMOUNT }.padding(top = 24.dp, bottom = 16.dp),
+                Modifier.fillMaxWidth().pointerInput(Unit) {
+                    val slop = 14.dp.toPx()
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var switched = false
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!switched && kotlin.math.abs(c.position.y - down.position.y) > slop) { switched = true; onToggleCurrency() }
+                            if (switched) c.consume()
+                            if (!c.pressed) { if (!switched) active = Field.AMOUNT; break }
+                        }
+                    }
+                }.padding(top = 24.dp, bottom = 16.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(currencyLabel, color = if (payingWithPayPal) PayPalBlue else TextMain, fontSize = 22.sp, fontWeight = FontWeight.Medium)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Rounded.UnfoldMore, "Swipe to switch KSh and USD", tint = TextMuted.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+                    AnimatedContent(targetState = currencyLabel, label = "currency") { c ->
+                        Text(c, color = if (c == "USD") PayPalBlue else TextMain, fontSize = 22.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
                 Spacer(Modifier.width(8.dp))
                 val amt = data["amount"] ?: ""
                 // Cursor sits where the next digit goes: before the grey "0" when empty, after the digits otherwise.
@@ -635,10 +701,11 @@ fun UssdTransactionScreen(
                 )
                 if (active == Field.AMOUNT && amt.isNotEmpty()) BlinkingCursor(42.dp, amt)
             }
-            val usd = data["amount"]?.toDoubleOrNull()
-            if (payingWithPayPal && usd != null && usd > 0) {
+            val typed = data["amount"]?.toDoubleOrNull()
+            if (typed != null && typed > 0 && fx != null) {
+                val other = if (isUsd) "≈ KSh ${"%,.0f".format(typed * fx.rate)}" else "≈ USD ${"%,.2f".format(typed / fx.rate)}"
                 Text(
-                    "≈ KSh ${"%,.0f".format(usd * KES_PER_USD)} (indicative)", color = TextMuted, fontSize = 12.sp,
+                    "$other · ${fx.label}", color = TextMuted, fontSize = 12.sp,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), textAlign = TextAlign.Center
                 )
             }
@@ -1021,6 +1088,8 @@ private fun PayeeBar(group: PayeeGroup, selected: Boolean, current: PayeeOption,
                 }
             }
         }
+        // Right side: what kind of account this is (phone = mobile money, building = bank), then the dropdown.
+        kindIcon(group.kind)?.let { Icon(it, if (group.kind == SourceKind.BANK) "Bank" else "Mobile money", tint = TextMuted, modifier = Modifier.size(18.dp)) }
         if (group.options.size > 1) {
             Box {
                 Row(
@@ -1139,7 +1208,7 @@ private fun PayOutcomeDialog(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("USD ${"%.2f".format(outcome.amount)} to ${outcome.email}", fontWeight = FontWeight.SemiBold)
-                    Text("≈ KSh ${"%,.0f".format(outcome.amount * KES_PER_USD)}. PayPal opens to confirm - you stay signed in from when you connected. Your password never touches HushhBoard.", fontSize = 13.sp, color = TextMuted)
+                    Text("${MoneyApi.lastFx?.let { "≈ KSh ${"%,.0f".format(outcome.amount * it.rate)} (${it.label}). " } ?: ""}PayPal opens to confirm - you stay signed in from when you connected. Your password never touches HushhBoard.", fontSize = 13.sp, color = TextMuted)
                 }
             },
             confirmButton = {

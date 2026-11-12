@@ -17,7 +17,7 @@ Kenya leads the world in mobile money: 54 million active mobile-money accounts a
   - PayPal → PayPal: a real payment through PayPal Orders v2. PayPal's own sheet opens to confirm (you're usually still signed in), then HushhBoard captures it and shows Paid.
   - PayPal → your own M-PESA or bank, or M-PESA → PayPal top-up: a one-tap handoff to the official M-PESA or PayPal app, where the PIN stays.
   - PayPal → someone else's M-PESA or bank: built and shown as "ready, waiting for the partner API". We don't fake money moving.
-- **One bar per account, with a primary.** Each provider (M-PESA, Airtel, each bank, PayPal) is one bar with its logo. Tap it to pay from its primary account, or open the bar's dropdown to use another account for this payment only. PayPal is only listed where it actually works (never Till or Paybill, and on Phone only for M-PESA numbers).
+- **One bar per account, with a primary.** Each provider (M-PESA, Airtel, each bank, PayPal) is one bar, with a phone or bank icon showing what kind of account it is. Tap it to pay from its primary account, or open the bar's dropdown to use another account for this payment only. PayPal is only listed where it actually works (never Till or Paybill, and on Phone only for M-PESA numbers).
 - **Shop from any chat.** Tap the bag key on the keyboard (or the suggestion that appears when you type *"get me the Sony WH-1000XM5"*). A sheet opens over the app you're in: Channel3 finds the product across 25,000+ stores with live prices. Pay with PayPal, drop a PayPal request into the chat so friends can chip in, share the deal, or open the store, without leaving the chat.
 - **Get paid from abroad.** "Request via PayPal" creates a pay link for any chat. When the client pays, HushhBoard shows Paid ✓.
 
@@ -25,7 +25,7 @@ Kenya leads the world in mobile money: 54 million active mobile-money accounts a
 The whole of HushhBoard was built during the submission period, on top of the open-source FlorisBoard keyboard (Apache 2.0). That includes the keyboard work (Kenyan English, Swahili and Sheng word engine, Eye and Ears toolbar keys, M-PESA USSD and STK payments from the toolbar) and everything below:
 - The whole PayPal layer: Vault v3 connect with no stored passwords, Orders v2 payments from the saved PayPal, PayPal pay-link requests with capture, and the stateless Render server with sealed device-bound links (`server/`).
 - The `money` module: accounts store with a primary account per provider, PayRouter (withdrawal, credit or payment; real payment, hand-off or "ready for API"), on-device AI fill, hand-off logging.
-- A new Pay screen (one bar per provider with real logos and a dropdown, PayPal only where supported, steady number pad, silent fresh-only smart fill) and a shared Add account sheet.
+- A new Pay screen (one bar per provider with a phone or bank icon and a dropdown, a KSh/USD switch on the amount using a live rate, PayPal only where supported, steady number pad, silent fresh-only smart fill) and a shared Add account sheet.
 - Channel3 Shop: a product-search sheet that opens over any app from a keyboard key or a typed shopping phrase.
 - A new one-tap setup, a new Home (Wallet), and new Eye/Ears toolbar keys.
 - APIMatic-checked PayPal request shapes, CI for the app, the money tests and the server.
@@ -70,4 +70,4 @@ kotlin, jetpack-compose, android, paypal-rest-api, paypal-vault, paypal-orders-v
 7. Wallet → **Request** → share the link → pay it with the second sandbox account → Wallet shows it as paid.
 
 ## License
-Apache License 2.0 (see `LICENSE` and `NOTICE`). HushhBoard is a modified fork of FlorisBoard; third-party logos are trademarks of their owners and are not covered by the licence.
+Apache License 2.0 (see `LICENSE` and `NOTICE`). HushhBoard is a modified fork of FlorisBoard; the PayPal logo is PayPal's trademark and is not covered by the licence; no other third-party logos are used.

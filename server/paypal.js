@@ -143,3 +143,17 @@ function summarize(order) {
     payer: order.payer?.email_address || order.payment_source?.paypal?.email_address,
   };
 }
+
+/**
+ * PayPal's own USD->KES rate (Currency Exchange v2, /v2/pricing/quote-exchange-rates).
+ * Needs the FX quote permission on the REST app; callers fall back to a live market rate if PayPal refuses.
+ */
+export async function quoteRate(base = 'USD', quote = 'KES') {
+  const body = await call('POST', '/v2/pricing/quote-exchange-rates', {
+    quote_items: [{ base_currency: base, quote_currency: quote }],
+  });
+  const q = body?.exchange_rate_quotes?.[0];
+  const rate = Number(q?.exchange_rate);
+  if (!(rate > 0)) throw new PayPalError(502, { name: 'NO_RATE', message: 'PayPal returned no rate' });
+  return { rate, expiresAt: q?.expiry_time || null };
+}

@@ -87,8 +87,8 @@ fun ConnectAccountsSetupScreen(onDone: () -> Unit) {
             if (groups.isEmpty()) {
                 // Three big one-tap tiles
                 listOf(
-                    Triple(Brands.networkLogo(Network.SAFARICOM), "M-PESA or Airtel Money", "Your phone number"),
-                    Triple(Brands.bankLogo("equity"), "Bank account", "Equity, KCB, Co-op, Absa and more"),
+                    Triple(Brands.MOBILE, "Mobile money", "M-PESA, Airtel Money or T-Kash number"),
+                    Triple(Brands.BANK, "Bank account", "Equity, KCB, Co-op, Absa and more"),
                     Triple(Brands.PAYPAL, "PayPal", "Log in on PayPal's page, once"),
                 ).forEach { (logo, t, sub) ->
                     Row(
@@ -315,6 +315,7 @@ private fun AccountGroupRow(g: PayeeGroup) {
             if (g.kind == SourceKind.PAYPAL) {
                 Text("Connected", color = PayPalBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 6.dp))
             }
+            kindIcon(g.kind)?.let { Icon(it, null, tint = Muted, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)) }
             Icon(Icons.Rounded.ExpandMore, null, tint = Muted, modifier = Modifier.rotate(arrow))
         }
         AnimatedVisibility(open) {

@@ -59,7 +59,6 @@ private val Ink = Color(0xFF111418)
 private val Muted = Color(0xFF7A808A)
 private val Line = Color(0xFFE8EAED)
 private val Soft = Color(0xFFF4F5F7)
-private const val KES_PER_USD = 129.96
 
 /**
  * HushhBoard Shop: a small sheet that opens over whatever app you are in (one tap on the keyboard's bag key or the
@@ -163,7 +162,9 @@ fun ShopPanel(initialQuery: String, onClose: () -> Unit, onInsert: (String) -> U
 
     LaunchedEffect(Unit) {
         shown = true
-        if (initialQuery.isNotBlank()) search(initialQuery) else runCatching { delay(250); focus.requestFocus() }
+        launch { MoneyApi.fx(ctx) }
+        // The keyboard only opens when the user taps the search bar, so it never covers the products.
+        if (initialQuery.isNotBlank()) search(initialQuery)
     }
 
     Box(
@@ -339,9 +340,10 @@ private fun ProductCard(
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(money(p), color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    if (p.currency == "USD") {
+                    val fx = MoneyApi.lastFx
+                    if (p.currency == "USD" && fx != null) {
                         Spacer(Modifier.width(6.dp))
-                        Text("≈ KSh ${"%,.0f".format(p.price * KES_PER_USD)}", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 2.dp))
+                        Text("≈ KSh ${"%,.0f".format(p.price * fx.rate)}", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 2.dp))
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {

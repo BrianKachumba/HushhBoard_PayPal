@@ -16,7 +16,6 @@ app.use(express.json({ limit: '32kb' }));
 const PORT = process.env.PORT || 8080;
 const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 const APP_LINK = 'hushhboard://paypal';
-const KES_PER_USD = Number(process.env.FX_KES_PER_USD || 129.96);
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const CURRENCIES = new Set(['USD', 'EUR', 'GBP']);
 const deviceHash = (d) => crypto.createHash('sha256').update('dev:' + d).digest('base64url').slice(0, 22);
@@ -84,7 +83,34 @@ ${href ? `<a class="btn" href="${esc(href)}">${esc(label)}</a>` : ''}
 // ---------- health / config ----------
 app.get('/', (_req, res) => res.json({ service: 'hushhboard-money', paypal: paypal.configured() ? 'sandbox-ready' : 'missing-credentials', products: productsConfigured() ? 'channel3-ready' : 'off' }));
 app.get('/health', (_req, res) => res.json({ ok: true }));
-app.get('/api/fx', (_req, res) => res.json({ base: 'USD', quote: 'KES', rate: KES_PER_USD, note: 'Indicative CBK mean rate; PayPal applies its own conversion.' }));
+// Live USD<->KES rate for the Pay screen's currency switch: PayPal's quote when the app has FX access,
+// otherwise today's market rate. Cached for 10 minutes; the response always says where the rate came from.
+let fxCache = null;
+async function liveRate() {
+  if (fxCache && Date.now() - fxCache.at < 10 * 60_000) return fxCache;
+  try {
+    const q = await paypal.quoteRate('USD', 'KES');
+    fxCache = { base: 'USD', quote: 'KES', rate: q.rate, source: 'paypal', at: Date.now() };
+  } catch (err) {
+    console.warn('[fx] PayPal quote unavailable:', err.message);
+    try {
+      const r = await fetch('https://open.er-api.com/v6/latest/USD');
+      const j = await r.json();
+      const rate = Number(j?.rates?.KES);
+      if (!(rate > 0)) throw new Error('no KES rate');
+      fxCache = { base: 'USD', quote: 'KES', rate, source: 'market', at: Date.now() };
+    } catch (e2) {
+      console.warn('[fx] market rate unavailable:', e2.message);
+      if (fxCache) return fxCache;           // last good rate
+      throw e2;
+    }
+  }
+  return fxCache;
+}
+app.get('/api/fx', async (_req, res) => {
+  try { res.json(await liveRate()); }
+  catch { res.status(503).json({ error: 'FX_UNAVAILABLE', message: "Can't get today's exchange rate right now." }); }
+});
 
 // ---------- PayPal connect (Vault) ----------
 app.post('/api/paypal/connect', async (req, res) => {
@@ -158,7 +184,7 @@ app.post('/api/paypal/send', async (req, res) => {
     res.json({
       id: result.id, status: 'PAYER_ACTION_REQUIRED', approveUrl: result.approveUrl,
       amount: m.amount.toFixed(2), currency: m.currency,
-      kesEstimate: m.currency === 'USD' ? Math.round(m.amount * KES_PER_USD) : null,
+      kesEstimate: m.currency === 'USD' ? await liveRate().then((f) => Math.round(m.amount * f.rate)).catch(() => null) : null,
     });
   } catch (err) { fail(res, err); }
 });
@@ -219,7 +245,8 @@ app.get('/api/products', async (req, res) => {
   try {
     const maxPrice = Number(req.query.max) > 0 ? Number(req.query.max) : undefined;
     const items = await searchProducts(q, { limit: 6, maxPrice });
-    res.json({ query: q, items, kesPerUsd: KES_PER_USD });
+    const fx = await liveRate().catch(() => null);
+    res.json({ query: q, items, kesPerUsd: fx?.rate ?? null, fxSource: fx?.source ?? null });
   } catch (err) {
     console.error('[channel3]', err.message);
     res.status(502).json({ error: 'PRODUCTS_FAILED', message: 'Product search is unavailable right now.' });

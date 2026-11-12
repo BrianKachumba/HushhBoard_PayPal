@@ -18,6 +18,11 @@ sealed class ApiResult<out T> {
     data class Err(val code: String, val message: String) : ApiResult<Nothing>()
 }
 
+/** Live USD->KES rate from our server: PayPal's own quote when available ("paypal"), else today's market rate. */
+data class FxRate(val rate: Double, val source: String) {
+    val label: String get() = if (source == "paypal") "PayPal rate" else "today's rate"
+}
+
 data class PayPalStatus(val connected: Boolean, val email: String?, val name: String?)
 data class PayPalPayment(val id: String, val status: String, val amount: String?, val currency: String?, val kesEstimate: Long?, val approveUrl: String = "")
 data class PayPalRequest(val id: String, val approveUrl: String, val shareText: String)
@@ -121,6 +126,18 @@ object MoneyApi {
     }
 
     /** Channel3 product search (through our server, so the API key stays off the phone). */
+    /** Last rate we got (shared by the Pay screen and Shop in this process). */
+    @Volatile var lastFx: FxRate? = null
+
+    suspend fun fx(ctx: Context): ApiResult<FxRate> = when (val r = call(ctx, "GET", "/api/fx")) {
+        is ApiResult.Ok -> {
+            val rate = r.value.optDouble("rate", 0.0)
+            if (rate > 0) FxRate(rate, r.value.optString("source", "market")).also { lastFx = it }.let { ApiResult.Ok(it) }
+            else ApiResult.Err("FX_UNAVAILABLE", "Can't get today's exchange rate right now.")
+        }
+        is ApiResult.Err -> r
+    }
+
     suspend fun products(ctx: Context, query: String): ApiResult<List<ShopProduct>> {
         val q = java.net.URLEncoder.encode(query, "UTF-8")
         return when (val r = call(ctx, "GET", "/api/products?q=$q")) {
