@@ -64,7 +64,7 @@ kotlin, jetpack-compose, android, paypal-rest-api, paypal-vault, paypal-orders-v
 3. **Connect your money**: add a Safaricom number such as 0712345678 and a bank, then add PayPal and log in with this sandbox **personal** account:
    `EMAIL: <add sandbox personal email>` / `PASSWORD: <add sandbox password>`
    The server is on a free plan: the first request after a quiet spell can take up to a minute.
-4. In any app with a text field, tap **Pay** on the keyboard toolbar → **Bank** → Send to: **PayPal** → enter `<add second sandbox email>` and 5 → choose the **PayPal** bar → **Pay with PayPal** → confirm → paid.
+4. In any app with a text field, tap **Pay** on the keyboard toolbar → **Bank** → Send to: **PayPal** → enter `<add second sandbox email>` and 5 → choose the **PayPal** bar → **Pay with PayPal** → **Continue to PayPal** → **Pay** on PayPal's sheet → back in HushhBoard with **Paid**. Swipe up or down on the amount to switch KSh and USD.
 5. Copy `send me $12 on paypal to <second sandbox email> for the logo`, then open Pay and tap the suggestion at the top.
 6. In a chat, type `can you get me the sony wh-1000xm5` and tap the shopping suggestion (or tap the bag key on the toolbar) → pick a product → **Pay** or **Request** (the PayPal link lands in the chat).
 7. Wallet → **Request** → share the link → pay it with the second sandbox account → Wallet shows it as paid.
