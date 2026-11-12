@@ -9,6 +9,8 @@ import android.widget.Toast
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Info
 import androidx.lifecycle.lifecycleScope
 import dev.patrickgold.florisboard.HushDashboardActivity
 import kotlinx.coroutines.launch
