@@ -92,6 +92,22 @@ fun BrandLogo(mark: Mark, size: Dp = 36.dp) {
     }
 }
 
+/** The setup screens' artwork (dark, green glow) with a soft scrim so text stays readable. */
+@Composable
+fun SetupBackground(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Color(0xFF05070A))) {
+        Image(painterResource(R.drawable.setup_bg), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        Box(
+            Modifier.fillMaxSize().background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 0.15f), 0.45f to Color.Black.copy(alpha = 0.35f), 1f to Color.Black.copy(alpha = 0.55f),
+                )
+            )
+        )
+        content()
+    }
+}
+
 // ───────────────────────── Payee groups (one bar per provider) ─────────────────────────
 
 /** One account inside a payee bar. [value] is the raw number used to pay; [label] is what we show. */
@@ -172,7 +188,8 @@ data class SheetPalette(val bg: Color, val surface: Color, val text: Color, val 
     }
 }
 
-private enum class AddKind { PHONE, BANK }
+/** Where the Add account sheet opens: the chooser (null), straight into a phone number, or the bank list. */
+enum class AddKind { PHONE, BANK }
 
 /**
  * Bottom sheet to add a phone number, a bank account or PayPal. Saves to [MoneyStore], so whatever is added here
@@ -180,11 +197,11 @@ private enum class AddKind { PHONE, BANK }
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddAccountSheet(palette: SheetPalette, onDismiss: () -> Unit, onAdded: (String) -> Unit = {}) {
+fun AddAccountSheet(palette: SheetPalette, onDismiss: () -> Unit, start: AddKind? = null, onAdded: (String) -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val accounts by MoneyStore.accounts.collectAsState()
-    var kind by remember { mutableStateOf<AddKind?>(null) }
+    var kind by remember { mutableStateOf(start) }
     var bank by remember { mutableStateOf<Bank?>(null) }
     var number by remember { mutableStateOf("") }
     var holder by remember { mutableStateOf("") }

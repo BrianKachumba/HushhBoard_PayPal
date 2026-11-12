@@ -68,12 +68,15 @@ private fun SyncPayPalOnResume() {
 fun ConnectAccountsSetupScreen(onDone: () -> Unit) {
     val ctx = LocalContext.current
     val accounts by MoneyStore.accounts.collectAsState()
+    val scope = rememberCoroutineScope()
     var adding by remember { mutableStateOf(false) }
+    var addStart by remember { mutableStateOf<AddKind?>(null) }
     LaunchedEffect(Unit) { MoneyStore.load(ctx) }
     SyncPayPalOnResume()
     val groups = remember(accounts) { Payees.groups(accounts) }
 
-    Column(Modifier.fillMaxSize().background(HushhTheme.Bg).statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp)) {
+    SetupBackground {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp)) {
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             repeat(4) { Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(50)).background(HushhTheme.Accent)) }
@@ -89,14 +92,18 @@ fun ConnectAccountsSetupScreen(onDone: () -> Unit) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             if (groups.isEmpty()) {
                 // Three big one-tap tiles
-                listOf(
-                    Triple(Brands.MOBILE, "Mobile money", "M-PESA, Airtel Money or T-Kash number"),
-                    Triple(Brands.BANK, "Bank account", "Equity, KCB, Co-op, Absa and more"),
-                    Triple(Brands.PAYPAL, "PayPal", "Log in on PayPal's page, once"),
-                ).forEach { (logo, t, sub) ->
+                // Each tile goes straight to its own step - no second chooser.
+                listOf<Triple<Mark, Pair<String, String>, () -> Unit>>(
+                    Triple(Brands.MOBILE, "Mobile money" to "M-PESA, Airtel Money or T-Kash number", { addStart = AddKind.PHONE; adding = true }),
+                    Triple(Brands.BANK, "Bank account" to "Equity, KCB, Co-op, Absa and more", { addStart = AddKind.BANK; adding = true }),
+                    Triple(Brands.PAYPAL, "PayPal" to "Log in on PayPal's page, once", {
+                        scope.launch { PayPalConnect.start(ctx)?.let { Toast.makeText(ctx, it, Toast.LENGTH_LONG).show() } }
+                    }),
+                ).forEach { (logo, text, onTap) ->
+                    val (t, sub) = text
                     Row(
-                        Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(18.dp)).background(Card)
-                            .border(1.dp, CardLine, RoundedCornerShape(18.dp)).clickable { adding = true }.padding(16.dp),
+                        Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(18.dp)).background(Card.copy(alpha = 0.82f))
+                            .border(1.dp, CardLine, RoundedCornerShape(18.dp)).clickable { onTap() }.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         BrandLogo(logo, 44.dp)
@@ -110,7 +117,7 @@ fun ConnectAccountsSetupScreen(onDone: () -> Unit) {
                 }
             } else {
                 AccountGroups(groups)
-                AddAccountTile { adding = true }
+                AddAccountTile { addStart = null; adding = true }
             }
         }
         Button(
@@ -122,7 +129,8 @@ fun ConnectAccountsSetupScreen(onDone: () -> Unit) {
         }
         Spacer(Modifier.height(16.dp))
     }
-    if (adding) AddAccountSheet(SheetPalette.Dark, onDismiss = { adding = false }) { Toast.makeText(ctx, it, Toast.LENGTH_SHORT).show() }
+    }
+    if (adding) AddAccountSheet(SheetPalette.Dark, onDismiss = { adding = false }, start = addStart) { Toast.makeText(ctx, it, Toast.LENGTH_SHORT).show() }
 }
 
 // ───────────────────────── Home tab ─────────────────────────

@@ -327,7 +327,8 @@ fun SetupWizardScreen(viewModel: DashboardViewModel, gatekeeper: GatekeeperState
     val step = when { !isEnabled -> 0; !isSelected -> 1; !permsDone -> 2; else -> 3 }
     LaunchedEffect(step) { if (step == 3) onComplete() }
 
-    Column(modifier = Modifier.fillMaxSize().background(Bg).statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp)) {
+    dev.patrickgold.florisboard.money.SetupBackground {
+    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp)) {
         Spacer(Modifier.height(20.dp))
         // Segmented progress: setup steps + "connect money"
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -346,11 +347,12 @@ fun SetupWizardScreen(viewModel: DashboardViewModel, gatekeeper: GatekeeperState
                 1 -> Triple(Icons.Rounded.SwapHoriz, "Make it your keyboard", "Pick HushhBoard in the list that pops up.")
                 else -> Triple(Icons.Rounded.VerifiedUser, "Allow the extras", "Camera to scan tills and QR codes, microphone for voice and song search, and phone access for M-PESA prompts. One tap.")
             }
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(112.dp).clip(RoundedCornerShape(32.dp)).background(Accent.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = Accent, modifier = Modifier.size(52.dp))
+            // The artwork's mascot is the illustration; the words sit below it.
+            Column(Modifier.fillMaxSize().padding(bottom = 20.dp), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(Accent.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = Accent, modifier = Modifier.size(24.dp))
                 }
-                Spacer(Modifier.height(28.dp))
+                Spacer(Modifier.height(16.dp))
                 Text(title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 Spacer(Modifier.height(10.dp))
                 Text(body, fontSize = 15.sp, color = Color.Gray, lineHeight = 21.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -391,6 +393,7 @@ fun SetupWizardScreen(viewModel: DashboardViewModel, gatekeeper: GatekeeperState
             }, modifier = Modifier.fillMaxWidth()) { Text("Not now", color = Color.Gray) }
         } else Spacer(Modifier.height(48.dp))
         Spacer(Modifier.height(12.dp))
+    }
     }
 
 }
