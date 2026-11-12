@@ -11,7 +11,7 @@
    - any number of bank accounts (Equity, KCB, Co-op, Absa and others)
    - your PayPal account
 
-   **Connect PayPal** opens PayPal's own login. PayPal handles the email, password and 2FA. HushhBoard receives only a secure saved link (a PayPal Vault payment token), so you can pay later **without logging in again**. Nobody stores passwords.
+   **Connect PayPal** opens PayPal's own login. PayPal handles the email, password and 2FA. HushhBoard receives only a sealed link to your PayPal identity (from PayPal Vault), so requests go to the right account and PayPal keeps you signed in. Nobody stores passwords.
 2. **Pay from the keyboard.** Tap **Pay** on the keyboard toolbar in any app. The same pay screen opens, with the tabs Phone, Till, Paybill and Bank. Your connected accounts are listed under **Payee**, and PayPal is one of them.
 3. **AI fills it in.** Copy a chat message such as *"Hey, send me $40 on PayPal: jane@studio.com for the logo"* and open Pay. HushhBoard's money AI reads it **on the device** and offers **"Pay USD 40 to jane@studio.com on PayPal"**. One tap fills the tab, the receiver, the amount and the PayPal method. You always confirm the payment yourself.
 4. **Routing tells you what will happen.** Before you confirm, one line says whether the move is a **Withdrawal** (to your own account), a **Credit** (to someone else) or a **Payment**, and how it completes.
@@ -20,7 +20,7 @@
 
 | Pay with | Tab / receiver | What HushhBoard does |
 | --- | --- | --- |
-| PayPal | Bank → **PayPal email** | **Real PayPal payment** from your saved PayPal (Orders v2 + Vault), no re-login |
+| PayPal | Bank → **PayPal email** | **Real PayPal payment** (Orders v2): PayPal's own sheet opens, you confirm (usually already signed in), HushhBoard captures it and shows Paid |
 | PayPal | Phone → **your own** M-PESA number | **Withdrawal:** one-tap handoff to the M-PESA app's PayPal withdraw (Global Payments) |
 | PayPal | Phone → someone else's M-PESA | **Credit:** built and shown as "ready, waiting for the PayPal × Safaricom payout API" |
 | PayPal | Phone → Airtel or Telkom | Not supported (PayPal pays out only to M-PESA in Kenya) |
@@ -58,7 +58,7 @@ Keyboard toolbar [Pay] ──► Pay screen (Compose) ──► PayRouter ──
   copied chat text ──► MoneyAi ─┘  │                    ├──► "Ready for partner API" screen
   (ML Kit, on-device)              │                    └──► HushhBoard money server ──► PayPal REST (sandbox)
                                    │                          • Vault v3: setup-token → payment-token
-  App: Setup "Connect your money" ─┘                          • Orders v2: pay with vault_id, request + capture
+  App: Setup "Connect your money" ─┘                          • Orders v2: pay a person, request + capture
        Home: manage accounts, PayPal activity
 ```
 
@@ -70,7 +70,7 @@ Keyboard toolbar [Pay] ──► Pay screen (Compose) ──► PayRouter ──
 
 | Partner | How HushhBoard uses it |
 | --- | --- |
-| **PayPal** | Vault v3 (connect once, no re-login), Orders v2 (pay with a saved PayPal, payment requests and capture), all in the sandbox |
+| **PayPal** | Vault v3 (connect once; links your PayPal identity without a password), Orders v2 (pay a person after confirming on PayPal, payment requests and capture), all in the sandbox |
 | **Render** | The money server runs on Render from `render.yaml` (Blueprint): a free web service with health checks and the secrets in Render's environment |
 | **Channel3** | `POST /v1/search` behind our server (`/api/products`) powers "shop abroad with PayPal": product, live price, store, buy link |
 | **APIMatic Context Plugin (PayPal)** | The PayPal integration was checked against the plugin's SDK map (Vault and Orders field shapes). That check added `stored_credential` for customer-initiated payments with a saved PayPal and `usage_pattern` on setup tokens. The plugin files are in `tools/context-plugins/paypal` |

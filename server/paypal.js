@@ -98,41 +98,6 @@ export async function deletePaymentToken(id) {
 
 const money = (amount, currency) => ({ currency_code: currency, value: Number(amount).toFixed(2) });
 
-/**
- * Pay someone using the saved PayPal account (no PayPal login again).
- * `payeeEmail` is the receiver's PayPal email.
- */
-export async function payWithVault({ vaultId, payeeEmail, amount, currency, note, requestId }) {
-  const purchaseUnit = {
-    amount: money(amount, currency),
-    description: (note || 'Sent with HushhBoard').slice(0, 127),
-  };
-  if (payeeEmail) purchaseUnit.payee = { email_address: payeeEmail };
-  // Saved PayPal (Vault v3 payment token): the documented shape is `payment_source.paypal.vault_id` alone.
-  // Do NOT add `stored_credential` here: for PayPal wallets PayPal reads it as a reference to a legacy
-  // billing agreement and answers BILLING_AGREEMENT_NOT_FOUND.
-  let order;
-  try {
-    order = await call('POST', '/v2/checkout/orders', {
-      intent: 'CAPTURE',
-      purchase_units: [purchaseUnit],
-      payment_source: { paypal: { vault_id: vaultId } },
-    }, { requestId });
-  } catch (err) {
-    // The saved link no longer exists at PayPal (deleted, revoked, or made with other API credentials).
-    if (err instanceof PayPalError && /BILLING_AGREEMENT_NOT_FOUND|INVALID_RESOURCE_ID|RESOURCE_NOT_FOUND|TOKEN_NOT_FOUND|PAYMENT_SOURCE_INFO_CANNOT_BE_VERIFIED/.test(JSON.stringify(err.body || {}) + err.message)) {
-      const e = new PayPalError(409, { name: 'PAYPAL_RELINK', message: 'Your saved PayPal link is no longer valid. Connect PayPal again (one login).' });
-      e.issue = 'PAYPAL_RELINK';
-      throw e;
-    }
-    throw err;
-  }
-  if (order.status === 'APPROVED' || order.status === 'CREATED') {
-    order = await call('POST', `/v2/checkout/orders/${order.id}/capture`, {}, { requestId: `cap-${order.id}` });
-  }
-  return summarize(order);
-}
-
 /** Ask someone to pay the user: an order whose payee is the user's PayPal; the payer approves on PayPal. */
 export async function createPaymentRequest({ payeeEmail, amount, currency, note, returnUrl, cancelUrl, requestId }) {
   const order = await call('POST', '/v2/checkout/orders', {

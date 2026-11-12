@@ -26,21 +26,14 @@ test('setup token never combines user_action with vault_instruction (PayPal reje
   assert.equal(ctx.user_action, undefined);
 });
 
-test('vaulted payment sends vault_id only (stored_credential makes PayPal look for a billing agreement)', async () => {
+test('paying a person is an order with them as payee, confirmed on PayPal (no vault_id: a vault only pays its own merchant)', async () => {
   const calls = fakePayPal((url) => url.endsWith('/v2/checkout/orders')
-    ? [201, { id: 'O1', status: 'COMPLETED', purchase_units: [{ amount: { value: '5.00', currency_code: 'USD' }, payee: { email_address: 'f@x.com' } }] }]
+    ? [200, { id: 'O1', status: 'PAYER_ACTION_REQUIRED', links: [{ rel: 'payer-action', href: 'https://pp/checkout' }] }]
     : [500, {}]);
-  const r = await paypal.payWithVault({ vaultId: 'V', payeeEmail: 'f@x.com', amount: 5, currency: 'USD', requestId: 'r' });
-  assert.equal(r.status, 'COMPLETED');
-  assert.deepEqual(calls.find((c) => c.url.endsWith('/orders')).body.payment_source, { paypal: { vault_id: 'V' } });
-});
-
-test('a vault link PayPal no longer knows asks the user to reconnect', async () => {
-  fakePayPal((url) => url.endsWith('/v2/checkout/orders')
-    ? [422, { name: 'UNPROCESSABLE_ENTITY', details: [{ issue: 'BILLING_AGREEMENT_NOT_FOUND', description: 'The requested Billing Agreement token was not found.' }] }]
-    : [500, {}]);
-  await assert.rejects(
-    paypal.payWithVault({ vaultId: 'V', payeeEmail: 'f@x.com', amount: 5, currency: 'USD', requestId: 'r2' }),
-    (e) => e.issue === 'PAYPAL_RELINK' && e.status === 409,
-  );
+  const r = await paypal.createPaymentRequest({ payeeEmail: 'jane@x.com', amount: 12, currency: 'USD', note: 'logo', returnUrl: 'https://a/pay/done?app=1', cancelUrl: 'https://a/pay/cancel?app=1', requestId: 'r' });
+  assert.equal(r.approveUrl, 'https://pp/checkout');
+  const body = calls.find((c) => c.url.endsWith('/orders')).body;
+  assert.equal(body.purchase_units[0].payee.email_address, 'jane@x.com');
+  assert.equal(body.payment_source.paypal.vault_id, undefined);
+  assert.equal(body.payment_source.paypal.experience_context.user_action, 'PAY_NOW');
 });

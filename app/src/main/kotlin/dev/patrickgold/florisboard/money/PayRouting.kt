@@ -27,7 +27,7 @@ sealed class PayRoute {
     /** The keyboard's existing M-PESA / Airtel flow (USSD or STK) handles it, optionally with rewritten fields. */
     data class Local(val tab: PayTab, val fields: Map<String, String>) : PayRoute()
 
-    /** A real PayPal payment from the user's saved PayPal (no re-login). */
+    /** A real PayPal payment to someone's PayPal email, confirmed on PayPal's own sheet. */
     data class PayPalSend(val toEmail: String) : PayRoute()
 
     /** Done today by another official app - one tap away. */

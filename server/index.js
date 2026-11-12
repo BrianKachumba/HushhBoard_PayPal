@@ -139,7 +139,9 @@ app.post('/api/paypal/disconnect', async (req, res) => {
   res.json({ connected: false });
 });
 
-// ---------- Pay with the saved PayPal ----------
+// ---------- Pay someone with PayPal ----------
+// A saved PayPal (Vault) can only pay the business that saved it, so paying a person is an order with that
+// person as payee, confirmed by the payer on PayPal's own sheet (they're normally still logged in from Connect).
 app.post('/api/paypal/send', async (req, res) => {
   const dev = device(req, res); if (!dev) return;
   const pp = link(req, res, dev); if (!pp) return;
@@ -148,11 +150,16 @@ app.post('/api/paypal/send', async (req, res) => {
   if (!EMAIL.test(to)) return res.status(400).json({ error: 'INVALID_PAYEE', message: "Enter the receiver's PayPal email." });
   if (to === String(pp.e || '').toLowerCase()) return res.status(400).json({ error: 'SAME_ACCOUNT', message: "You can't send to your own PayPal." });
   try {
-    const result = await paypal.payWithVault({
-      vaultId: pp.v, payeeEmail: to, amount: m.amount, currency: m.currency, note: req.body.note,
+    const result = await paypal.createPaymentRequest({
+      payeeEmail: to, amount: m.amount, currency: m.currency, note: req.body.note || 'Sent with HushhBoard',
+      returnUrl: `${PUBLIC_URL}/pay/done?app=1`, cancelUrl: `${PUBLIC_URL}/pay/cancel?app=1`,
       requestId: String(req.get('Idempotency-Key') || crypto.randomUUID()),
     });
-    res.json({ ...result, kesEstimate: m.currency === 'USD' ? Math.round(m.amount * KES_PER_USD) : null });
+    res.json({
+      id: result.id, status: 'PAYER_ACTION_REQUIRED', approveUrl: result.approveUrl,
+      amount: m.amount.toFixed(2), currency: m.currency,
+      kesEstimate: m.currency === 'USD' ? Math.round(m.amount * KES_PER_USD) : null,
+    });
   } catch (err) { fail(res, err); }
 });
 
@@ -177,17 +184,31 @@ app.post('/api/paypal/request', async (req, res) => {
 // The payer (anywhere in the world) lands here after approving on PayPal.
 app.get(['/pay/done', '/paypal/paid'], async (req, res) => {
   const orderId = String(req.query.token || '');
+  const fromApp = req.query.app === '1';
   if (!/^[A-Z0-9]{10,30}$/.test(orderId)) return res.status(400).send(page('Unknown payment', 'This payment link is not valid.', { ok: false }));
   try {
-    const r = await paypal.captureOrder(orderId);
+    let r;
+    try { r = await paypal.captureOrder(orderId); } catch (e) {
+      // Reloaded page or second tap: the money already moved, just show it.
+      if (!/ORDER_ALREADY_CAPTURED/.test(e.message)) throw e;
+      r = await paypal.getOrder(orderId);
+    }
+    if (fromApp) {
+      const href = `${APP_LINK}?result=paid&order=${encodeURIComponent(r.id)}&status=${encodeURIComponent(r.status)}&amount=${encodeURIComponent(r.amount || '')}&currency=${encodeURIComponent(r.currency || '')}&to=${encodeURIComponent(r.payee || '')}`;
+      return res.send(page('Paid', `${r.currency} ${r.amount} sent. Taking you back to HushhBoard.`, { href, label: 'Back to HushhBoard', autoOpen: true }));
+    }
     res.send(page('Payment sent', `Thank you. ${r.currency} ${r.amount} was paid.`));
   } catch (err) {
     console.error('[capture]', err.message);
-    res.status(502).send(page('Payment not completed', 'This payment could not be completed. Nothing was charged.', { ok: false }));
+    const back = fromApp ? { href: `${APP_LINK}?result=pay_failed&order=${encodeURIComponent(orderId)}`, label: 'Back to HushhBoard', autoOpen: true } : {};
+    res.status(502).send(page('Payment not completed', 'This payment could not be completed. Nothing was charged.', { ok: false, ...back }));
   }
 });
 
-app.get(['/pay/cancel', '/paypal/declined'], (_req, res) => res.send(page('Payment cancelled', 'You cancelled. Nothing was charged.', { ok: false })));
+app.get(['/pay/cancel', '/paypal/declined'], (req, res) => {
+  const back = req.query.app === '1' ? { href: `${APP_LINK}?result=pay_cancelled`, label: 'Back to HushhBoard', autoOpen: true } : {};
+  res.send(page('Payment cancelled', 'You cancelled. Nothing was charged.', { ok: false, ...back }));
+});
 
 // ---------- Shopping (Channel3): find the product and its live price ----------
 app.get('/api/products', async (req, res) => {

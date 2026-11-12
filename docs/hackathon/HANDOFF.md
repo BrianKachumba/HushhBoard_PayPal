@@ -30,7 +30,7 @@ The keyboard is unchanged from PR #6 (typing, scanner, emoji row, OTP chips…).
 | PayPal | Phone, other Safaricom number | Credit → "Ready, needs PayPal × Safaricom API" (no money moves) |
 | PayPal | Phone, Airtel/Telkom | Not supported |
 | PayPal | Till / Paybill | Not supported |
-| PayPal | Bank → PayPal email | **Real PayPal payment** (Orders v2 with vault_id) |
+| PayPal | Bank → PayPal email | **Real PayPal payment** (Orders v2, payee = that email, confirmed on PayPal's sheet, captured at /pay/done). A Vault token can't pay a third party: BILLING_AGREEMENT_NOT_FOUND. |
 | PayPal | Bank → own bank | Withdrawal → handoff to the PayPal app |
 | PayPal | Bank → other bank | Credit → "Ready, needs bank API" |
 | Bank | Bank → own PayPal | Top-up handoff (M-PESA app) |

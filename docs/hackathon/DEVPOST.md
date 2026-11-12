@@ -10,11 +10,11 @@ A Kenyan keyboard that turns any chat into a payment: M-PESA, banks and PayPal i
 Kenya leads the world in mobile money: 54 million active mobile-money accounts and M-PESA in almost every pocket. But international money still lives somewhere else. A Kenyan freelancer agrees a price in WhatsApp, then jumps between PayPal, the M-PESA app, the bank app and the USSD menu, and retypes numbers each time. So we built a keyboard that pays with M-PESA from any chat, and made PayPal part of it so it works locally *and* internationally.
 
 ## What it does
-- **Connect once.** During setup you add your Safaricom or Airtel number, any number of bank accounts, and your PayPal. PayPal's own login handles your email, password and 2FA. We keep only a PayPal Vault payment token, so you never log in again and nobody stores a password.
+- **Connect once.** During setup you add your Safaricom or Airtel number, any number of bank accounts, and your PayPal. PayPal's own login handles your email, password and 2FA. We keep only a sealed link to your PayPal identity. Nobody stores a password, and PayPal keeps you signed in.
 - **Pay from any chat.** Tap Pay on the keyboard toolbar. One screen, four tabs (Phone, Till, Paybill, Bank), with PayPal as one of your payment methods.
 - **AI fills it in.** Copy a message like *"send me $40 on PayPal: jane@studio.com"*. On-device ML (Google ML Kit Entity Extraction plus our Kenyan rules for tills, paybills, phone networks and banks) offers *Pay USD 40 to jane@studio.com on PayPal*. One tap fills everything; you still confirm.
 - **Honest routing.** Before you confirm, HushhBoard tells you whether this is a Withdrawal (to your own account), a Credit (to someone else) or a Payment, and how it completes:
-  - PayPal → PayPal: a real payment through PayPal Orders v2 with the saved Vault token.
+  - PayPal → PayPal: a real payment through PayPal Orders v2. PayPal's own sheet opens to confirm (you're usually still signed in), then HushhBoard captures it and shows Paid.
   - PayPal → your own M-PESA or bank, or M-PESA → PayPal top-up: a one-tap handoff to the official M-PESA or PayPal app, where the PIN stays.
   - PayPal → someone else's M-PESA or bank: built and shown as "ready, waiting for the partner API". We don't fake money moving.
 - **One bar per account, with a primary.** Each provider (M-PESA, Airtel, each bank, PayPal) is one bar with its logo. Tap it to pay from its primary account, or open the bar's dropdown to use another account for this payment only. PayPal is only listed where it actually works (never Till or Paybill, and on Phone only for M-PESA numbers).
@@ -32,7 +32,7 @@ The whole of HushhBoard was built during the submission period, on top of the op
 
 ## How we built it
 - Android (Kotlin, Jetpack Compose) on our FlorisBoard-based keyboard. The Pay screen and a new `money` module hold the accounts store, the PayRouter, the AI layer, and the setup and Home screens.
-- A **stateless Node/Express server** on Render keeps the PayPal client secret off the phone. It uses **PayPal Vault v3** (setup token → payer approval → payment token) and **Orders v2** (pay with `vault_id`, create request, capture). The Vault reference is sealed with AES-256-GCM, bound to the device and stored on the phone, so the server keeps no database.
+- A **stateless Node/Express server** on Render keeps the PayPal client secret off the phone. It uses **PayPal Vault v3** (setup token → payer approval → payment token) and **Orders v2** (pay a person, create request, capture). The Vault reference is sealed with AES-256-GCM, bound to the device and stored on the phone, so the server keeps no database.
 - **Channel3** product search (through our server, so the API key stays off the phone) turns shopping messages into real products and prices.
 - **APIMatic PayPal Context Plugin**: we checked every PayPal request shape against its SDK map. That check added customer-initiated `stored_credential` to vaulted payments and `usage_pattern` to setup tokens.
 - **Render** hosts the server from a one-file Blueprint.
@@ -40,6 +40,7 @@ The whole of HushhBoard was built during the submission period, on top of the op
 - Unit tests for every routing rule and for the sealed links, run in GitHub Actions CI.
 
 ## Challenges
+- A saved PayPal (Vault) can only pay the business that saved it, not another person. So paying a friend is a PayPal order they confirm on PayPal's own sheet; Vault links the user's PayPal identity for requests.
 - PayPal doesn't offer outside apps a payout to M-PESA or bank accounts. Instead of faking it, we built hand-offs to the official apps and clear "ready for API" states.
 - Free hosting restarts wipe disk, so we made the server stateless with sealed, device-bound links.
 - The pay screen runs in its own process, so accounts are shared through an atomic file instead of SharedPreferences.

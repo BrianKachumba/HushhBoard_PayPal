@@ -325,9 +325,15 @@ class UssdConfirmationActivity : ComponentActivity() {
     private fun sendPayPal(email: String, amount: Double, note: String) {
         outcomeState.value = PayOutcome.Sending
         lifecycleScope.launch {
-            outcomeState.value = when (val r = MoneyApi.send(this@UssdConfirmationActivity, email, amount, "USD", note.ifBlank { "Sent with HushhBoard" })) {
-                is ApiResult.Ok -> PayOutcome.Sent(r.value, email)
-                is ApiResult.Err -> PayOutcome.Failed(r.message)
+            when (val r = MoneyApi.send(this@UssdConfirmationActivity, email, amount, "USD", note.ifBlank { "Sent with HushhBoard" })) {
+                is ApiResult.Ok -> {
+                    // PayPal's own sheet confirms it (the user is normally still signed in from Connect),
+                    // then our server captures it and brings them back with "Paid".
+                    outcomeState.value = null
+                    PayPalConnect.openPayPalPage(this@UssdConfirmationActivity, r.value.approveUrl)
+                    finish()
+                }
+                is ApiResult.Err -> outcomeState.value = PayOutcome.Failed(r.message)
             }
         }
     }
@@ -1089,7 +1095,7 @@ private fun SmartBanner(fill: SmartFill, onApply: () -> Unit, onDismiss: () -> U
 private fun RouteHint(flow: Flow, route: PayRoute) {
     val (text, color) = when (route) {
         is PayRoute.Local -> "${flow.label} · pay with your PIN on the M-PESA/Airtel screen" to Brand
-        is PayRoute.PayPalSend -> "${flow.label} · instant PayPal payment, no login needed" to PayPalBlue
+        is PayRoute.PayPalSend -> "${flow.label} · confirm on PayPal, then done" to PayPalBlue
         is PayRoute.Handoff -> "${route.flow.label} · finish in ${route.app.label.removePrefix("Open ")}" to PayPalBlue
         is PayRoute.NeedsApi -> "${route.flow.label} · ready, waiting for ${route.partner} API" to AmberText
         is PayRoute.NotSupported -> "Not supported for this payment method" to Color(0xFFD32F2F)
@@ -1133,11 +1139,11 @@ private fun PayOutcomeDialog(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("USD ${"%.2f".format(outcome.amount)} to ${outcome.email}", fontWeight = FontWeight.SemiBold)
-                    Text("≈ KSh ${"%,.0f".format(outcome.amount * KES_PER_USD)}. Paid from your connected PayPal - PayPal processes it and you won't need to log in.", fontSize = 13.sp, color = TextMuted)
+                    Text("≈ KSh ${"%,.0f".format(outcome.amount * KES_PER_USD)}. PayPal opens to confirm - you stay signed in from when you connected. Your password never touches HushhBoard.", fontSize = 13.sp, color = TextMuted)
                 }
             },
             confirmButton = {
-                Button(onClick = { onSendPayPal(outcome.email, outcome.amount) }, colors = ButtonDefaults.buttonColors(containerColor = PayPalBlue)) { Text("Pay now") }
+                Button(onClick = { onSendPayPal(outcome.email, outcome.amount) }, colors = ButtonDefaults.buttonColors(containerColor = PayPalBlue)) { Text("Continue to PayPal") }
             },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextMuted) } }
         )
